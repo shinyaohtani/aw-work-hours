@@ -203,10 +203,11 @@ def generate_compact(daily_work: dict, start_date: str = None, end_date: str = N
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
 
     # 表示する日付範囲を決定
+    today = datetime.now(TIMEZONE).date()
     if start_date and end_date:
-        # 指定された期間の全日を表示
+        # 指定された期間の全日を表示（ただし今日まで）
         start = datetime.fromisoformat(start_date).date()
-        end = datetime.fromisoformat(end_date).date()
+        end = min(datetime.fromisoformat(end_date).date(), today + timedelta(days=1))
     elif daily_work:
         # データの最小日〜最大日
         start = min(daily_work.keys())
