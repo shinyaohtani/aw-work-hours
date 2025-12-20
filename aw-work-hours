@@ -20,230 +20,264 @@ import sys
 import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
-API_BASE = "http://127.0.0.1:5600/api/0"
-BUCKET_ID = "aw-watcher-afk_PC-MC2408N0009B.local"
-TIMEZONE = ZoneInfo("Asia/Tokyo")
+_API_BASE: str = "http://127.0.0.1:5600/api/0"
+_BUCKET_ID: str = "aw-watcher-afk_PC-MC2408N0009B.local"
+_TIMEZONE: ZoneInfo = ZoneInfo("Asia/Tokyo")
+_WORK_GAP_SECONDS: int = 3 * 60 * 60
+_WEEKDAYS: list[str] = ["月", "火", "水", "木", "金", "土", "日"]
 
-# 勤務が途切れたとみなすAFK時間（秒）- 3時間以上離席で途切れとみなす
-WORK_GAP_THRESHOLD = 3 * 60 * 60
 
+class MonthPeriod:
+    """月の期間"""
 
-def parse_month_arg(month_str: str) -> tuple:
-    """
-    --month引数をパースして開始日・終了日を返す
-    Returns: (start_date, end_date) as ISO format strings, or (None, None) for all
-    """
-    now = datetime.now(TIMEZONE)
+    def __init__(self, start: datetime | None, end: datetime | None) -> None:
+        self._start: datetime | None = start
+        self._end: datetime | None = end
 
-    if month_str == "this":
-        # 今月
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # 翌月1日を計算
+    @classmethod
+    def parse(cls, month_str: str) -> "MonthPeriod":
+        now: datetime = datetime.now(_TIMEZONE)
+        if month_str == "this":
+            return cls._this_month(now)
+        elif month_str == "last":
+            return cls._last_month(now)
+        elif month_str == "all":
+            return cls(None, None)
+        else:
+            return cls._specified_month(month_str)
+
+    @classmethod
+    def _this_month(cls, now: datetime) -> "MonthPeriod":
+        start: datetime = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         if now.month == 12:
-            end = start.replace(year=now.year + 1, month=1)
+            end: datetime = start.replace(year=now.year + 1, month=1)
         else:
             end = start.replace(month=now.month + 1)
-        return start.isoformat(), end.isoformat()
+        return cls(start, end)
 
-    elif month_str == "last":
-        # 先月
-        first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = first_of_this_month
-        # 先月1日を計算
+    @classmethod
+    def _last_month(cls, now: datetime) -> "MonthPeriod":
+        first: datetime = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         if now.month == 1:
-            start = first_of_this_month.replace(year=now.year - 1, month=12)
+            start: datetime = first.replace(year=now.year - 1, month=12)
         else:
-            start = first_of_this_month.replace(month=now.month - 1)
-        return start.isoformat(), end.isoformat()
+            start = first.replace(month=now.month - 1)
+        return cls(start, first)
 
-    elif month_str == "all":
-        # 全期間
-        return None, None
-
-    else:
-        # YYYY-MM形式
+    @classmethod
+    def _specified_month(cls, month_str: str) -> "MonthPeriod":
         try:
             year, month = map(int, month_str.split("-"))
-            start = datetime(year, month, 1, tzinfo=TIMEZONE)
-            # 翌月1日を計算
+            start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
             if month == 12:
-                end = start.replace(year=year + 1, month=1)
+                end: datetime = start.replace(year=year + 1, month=1)
             else:
                 end = start.replace(month=month + 1)
-            return start.isoformat(), end.isoformat()
+            return cls(start, end)
         except ValueError:
             print(f"エラー: 無効な月指定です: {month_str}", file=sys.stderr)
             print("使用可能な形式: this, last, all, YYYY-MM (例: 2025-11)", file=sys.stderr)
             sys.exit(1)
 
+    @property
+    def start(self) -> str | None:
+        return self._start.isoformat() if self._start else None
 
-def fetch_events(start_date: str = None, end_date: str = None) -> list:
-    """ActivityWatch APIからAFKイベントを取得"""
-    url = f"{API_BASE}/buckets/{BUCKET_ID}/events"
+    @property
+    def end(self) -> str | None:
+        return self._end.isoformat() if self._end else None
 
-    params = {"limit": "-1"}
-    if start_date:
-        params["start"] = start_date
-    if end_date:
-        params["end"] = end_date
+    @property
+    def start_date(self) -> date | None:
+        return self._start.date() if self._start else None
 
-    url += "?" + urllib.parse.urlencode(params)
-
-    try:
-        with urllib.request.urlopen(url, timeout=30) as response:
-            return json.loads(response.read().decode())
-    except urllib.error.URLError as e:
-        print(f"エラー: ActivityWatch APIに接続できません", file=sys.stderr)
-        print(f"ActivityWatchが起動しているか確認してください", file=sys.stderr)
-        print(f"詳細: {e}", file=sys.stderr)
-        sys.exit(1)
+    @property
+    def end_date(self) -> date | None:
+        return self._end.date() if self._end else None
 
 
-def format_time_extended(dt: datetime, base_date) -> str:
-    """時刻を表示用にフォーマット（24時間超え対応）"""
-    days_diff = (dt.date() - base_date).days
-    hour = dt.hour + (days_diff * 24)
-    return f"{hour:02d}:{dt.minute:02d}"
+class AFKEvents:
+    """ActivityWatchのAFKイベント"""
 
+    def __init__(self, events: list[dict]) -> None:
+        self._events: list[dict] = events
 
-def get_work_date(dt: datetime):
-    """勤務日を決定（0:00-5:00は前日扱い）"""
-    if 0 <= dt.hour < 5:
-        return (dt - timedelta(days=1)).date()
-    return dt.date()
+    @classmethod
+    def fetch(cls, start: str | None, end: str | None) -> "AFKEvents":
+        url: str = cls._build_url(start, end)
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                events: list[dict] = json.loads(response.read().decode())
+                return cls(events)
+        except urllib.error.URLError as e:
+            print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
+            print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
+            print(f"詳細: {e}", file=sys.stderr)
+            sys.exit(1)
 
+    @classmethod
+    def _build_url(cls, start: str | None, end: str | None) -> str:
+        url: str = f"{_API_BASE}/buckets/{_BUCKET_ID}/events"
+        params: dict[str, str] = {"limit": "-1"}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        return url + "?" + urllib.parse.urlencode(params)
 
-def process_events(events: list) -> list:
-    """イベントを処理して勤務ブロックを抽出"""
-    not_afk_events = sorted(
-        [e for e in events if e["data"]["status"] == "not-afk"],
-        key=lambda e: e["timestamp"]
-    )
+    @property
+    def count(self) -> int:
+        return len(self._events)
 
-    if not not_afk_events:
-        return []
+    @property
+    def work_blocks(self) -> list[tuple[datetime, datetime]]:
+        not_afk: list[dict] = sorted(
+            [e for e in self._events if e["data"]["status"] == "not-afk"],
+            key=lambda e: e["timestamp"]
+        )
+        if not not_afk:
+            return []
+        return self._extract_blocks(not_afk)
 
-    work_blocks = []
-    block_start = None
-    block_end = None
+    def _extract_blocks(self, events: list[dict]) -> list[tuple[datetime, datetime]]:
+        blocks: list[tuple[datetime, datetime]] = []
+        block_start: datetime | None = None
+        block_end: datetime | None = None
 
-    for event in not_afk_events:
-        event_start = datetime.fromisoformat(event["timestamp"]).astimezone(TIMEZONE)
-        event_end = event_start + timedelta(seconds=event["duration"])
+        for event in events:
+            event_start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
+            event_end: datetime = event_start + timedelta(seconds=event["duration"])
 
-        if block_start is None:
-            block_start, block_end = event_start, event_end
-        else:
-            gap = (event_start - block_end).total_seconds()
-
-            # 新しい勤務日の開始判定
-            is_new_workday = (
-                gap > WORK_GAP_THRESHOLD and event_start.hour >= 5
-            )
-
-            if is_new_workday:
-                work_blocks.append((block_start, block_end))
+            if block_start is None:
                 block_start, block_end = event_start, event_end
             else:
-                block_end = max(block_end, event_end)
+                gap: float = (event_start - block_end).total_seconds()
+                if gap > _WORK_GAP_SECONDS and event_start.hour >= 5:
+                    blocks.append((block_start, block_end))
+                    block_start, block_end = event_start, event_end
+                else:
+                    block_end = max(block_end, event_end)
 
-    if block_start is not None:
-        work_blocks.append((block_start, block_end))
-
-    return work_blocks
-
-
-def aggregate_by_work_date(work_blocks: list) -> dict:
-    """勤務ブロックを勤務日ごとに集計"""
-    daily_work = {}
-
-    for block_start, block_end in work_blocks:
-        work_date = get_work_date(block_start)
-
-        if work_date not in daily_work:
-            daily_work[work_date] = {"start": block_start, "end": block_end}
-        else:
-            if block_start < daily_work[work_date]["start"]:
-                daily_work[work_date]["start"] = block_start
-            if block_end > daily_work[work_date]["end"]:
-                daily_work[work_date]["end"] = block_end
-
-    return daily_work
+        if block_start is not None:
+            blocks.append((block_start, block_end))
+        return blocks
 
 
-def generate_csv(daily_work: dict) -> str:
-    """CSV文字列を生成（ファイル出力用、Excel対応）"""
-    lines = ["date,weekday,start_time,end_time,duration_hours"]
-    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+class WorkCalendar:
+    """勤務カレンダー"""
 
-    for work_date in sorted(daily_work.keys()):
-        data = daily_work[work_date]
-        start_time = format_time_extended(data["start"], work_date)
-        end_time = format_time_extended(data["end"], work_date)
-        duration = (data["end"] - data["start"]).total_seconds() / 3600
+    def __init__(self, daily: dict[date, tuple[datetime, datetime]]) -> None:
+        self._daily: dict[date, tuple[datetime, datetime]] = daily
 
-        # Excel文字列形式
-        lines.append(
-            f'="{work_date.strftime("%Y-%m-%d")}",'
-            f'{weekdays[work_date.weekday()]},'
-            f'="{start_time}",'
-            f'="{end_time}",'
-            f'{duration:.2f}'
-        )
-
-    return "\n".join(lines) + "\n"
-
-
-def generate_compact(daily_work: dict, start_date: str = None, end_date: str = None) -> str:
-    """コンパクト形式で出力（標準出力用）"""
-    lines = []
-    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
-
-    # 表示する日付範囲を決定
-    today = datetime.now(TIMEZONE).date()
-    if start_date and end_date:
-        # 指定された期間の全日を表示（ただし今日まで）
-        start = datetime.fromisoformat(start_date).date()
-        end = min(datetime.fromisoformat(end_date).date(), today + timedelta(days=1))
-    elif daily_work:
-        # データの最小日〜最大日
-        start = min(daily_work.keys())
-        end = max(daily_work.keys()) + timedelta(days=1)
-    else:
-        return ""
-
-    current = start
-    while current < end:
-        if current in daily_work:
-            data = daily_work[current]
-            start_time = format_time_extended(data["start"], current)
-            end_time = format_time_extended(data["end"], current)
-            duration = (data["end"] - data["start"]).total_seconds() / 3600
-
-            if round(duration, 1) == 0:
-                lines.append(f'{current.strftime("%Y-%m-%d")} {weekdays[current.weekday()]}')
+    @classmethod
+    def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
+        daily: dict[date, tuple[datetime, datetime]] = {}
+        for block_start, block_end in blocks:
+            work_date: date = cls._work_date(block_start)
+            if work_date not in daily:
+                daily[work_date] = (block_start, block_end)
             else:
-                lines.append(
-                    f'{current.strftime("%Y-%m-%d")} {weekdays[current.weekday()]}   '
-                    f'{start_time} - {end_time}   ({duration:.1f}h)'
+                existing_start, existing_end = daily[work_date]
+                daily[work_date] = (
+                    min(block_start, existing_start),
+                    max(block_end, existing_end)
                 )
+        return cls(daily)
+
+    @classmethod
+    def _work_date(cls, dt: datetime) -> date:
+        if 0 <= dt.hour < 5:
+            return (dt - timedelta(days=1)).date()
+        return dt.date()
+
+    @property
+    def days(self) -> int:
+        return len(self._daily)
+
+    def csv(self) -> str:
+        lines: list[str] = ["date,weekday,start_time,end_time,duration_hours"]
+        for work_date in sorted(self._daily.keys()):
+            start, end = self._daily[work_date]
+            start_time: str = self._format_time(start, work_date)
+            end_time: str = self._format_time(end, work_date)
+            duration: float = (end - start).total_seconds() / 3600
+            lines.append(
+                f'="{work_date.strftime("%Y-%m-%d")}",'
+                f'{_WEEKDAYS[work_date.weekday()]},'
+                f'="{start_time}",="{end_time}",{duration:.2f}'
+            )
+        return "\n".join(lines) + "\n"
+
+    def compact(self, period: MonthPeriod) -> str:
+        today: date = datetime.now(_TIMEZONE).date()
+        start, end = self._compact_range(period, today)
+        if start is None:
+            return ""
+        return self._format_compact(start, end)
+
+    def _compact_range(self, period: MonthPeriod, today: date) -> tuple[date | None, date | None]:
+        if period.start_date and period.end_date:
+            start: date = period.start_date
+            end: date = min(period.end_date, today + timedelta(days=1))
+        elif self._daily:
+            start = min(self._daily.keys())
+            end = max(self._daily.keys()) + timedelta(days=1)
         else:
-            # データがない日は日付のみ表示
-            lines.append(f'{current.strftime("%Y-%m-%d")} {weekdays[current.weekday()]}')
+            return None, None
+        return start, end
 
-        current += timedelta(days=1)
+    def _format_compact(self, start: date, end: date) -> str:
+        lines: list[str] = []
+        current: date = start
+        while current < end:
+            lines.append(self._format_day(current))
+            current += timedelta(days=1)
+        return "\n".join(lines) + "\n" if lines else ""
 
-    return "\n".join(lines) + "\n" if lines else ""
+    def _format_day(self, d: date) -> str:
+        prefix: str = f'{d.strftime("%Y-%m-%d")} {_WEEKDAYS[d.weekday()]}'
+        if d not in self._daily:
+            return prefix
+        start, end = self._daily[d]
+        duration: float = (end - start).total_seconds() / 3600
+        if round(duration, 1) == 0:
+            return prefix
+        start_time: str = self._format_time(start, d)
+        end_time: str = self._format_time(end, d)
+        return f'{prefix}   {start_time} - {end_time}   ({duration:.1f}h)'
+
+    def _format_time(self, dt: datetime, base: date) -> str:
+        days_diff: int = (dt.date() - base).days
+        hour: int = dt.hour + (days_diff * 24)
+        return f"{hour:02d}:{dt.minute:02d}"
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="ActivityWatchから勤務時間をCSVにエクスポート",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+class CLI:
+    """コマンドラインインターフェース"""
+
+    def run(self) -> None:
+        args: argparse.Namespace = self._args()
+        period: MonthPeriod = MonthPeriod.parse(args.month)
+
+        self._status(f"対象期間: {self._period_label(args.month)}", args.quiet)
+        self._status("ActivityWatchからデータを取得中...", args.quiet)
+
+        events: AFKEvents = AFKEvents.fetch(period.start, period.end)
+        self._status(f"取得イベント数: {events.count}", args.quiet)
+
+        calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
+        self._status(f"勤務日数: {calendar.days}", args.quiet)
+
+        self._output(calendar, period, args)
+
+    def _args(self) -> argparse.Namespace:
+        parser: argparse.ArgumentParser = argparse.ArgumentParser(
+            description="ActivityWatchから勤務時間をCSVにエクスポート",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
 例:
   aw-work-hours                    今月の勤務時間を出力
   aw-work-hours --month=last       先月の勤務時間を出力
@@ -251,64 +285,29 @@ def main():
   aw-work-hours --month=all        全期間の勤務時間を出力
   aw-work-hours -o work.csv        ファイルに出力
 """
-    )
-    parser.add_argument(
-        "--month", "-m",
-        default="this",
-        help="対象月: this(今月), last(先月), all(全期間), YYYY-MM (デフォルト: this)"
-    )
-    parser.add_argument(
-        "--output", "-o",
-        help="出力ファイル名（指定しない場合は標準出力）"
-    )
-    parser.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="進捗メッセージを非表示"
-    )
+        )
+        parser.add_argument("--month", "-m", default="this",
+                            help="対象月: this(今月), last(先月), all(全期間), YYYY-MM")
+        parser.add_argument("--output", "-o", help="出力ファイル名")
+        parser.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
+        return parser.parse_args()
 
-    args = parser.parse_args()
+    def _status(self, msg: str, quiet: bool) -> None:
+        if not quiet:
+            print(msg, file=sys.stderr)
 
-    # 月の範囲をパース
-    start_date, end_date = parse_month_arg(args.month)
+    def _period_label(self, month: str) -> str:
+        labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
+        return labels.get(month, month)
 
-    if not args.quiet:
-        if args.month == "all":
-            print("対象期間: 全期間", file=sys.stderr)
-        elif args.month == "this":
-            print(f"対象期間: 今月", file=sys.stderr)
-        elif args.month == "last":
-            print(f"対象期間: 先月", file=sys.stderr)
+    def _output(self, calendar: WorkCalendar, period: MonthPeriod, args: argparse.Namespace) -> None:
+        if args.output:
+            with open(args.output, "w", encoding="utf-8-sig") as f:
+                f.write(calendar.csv())
+            self._status(f"出力完了: {args.output}", args.quiet)
         else:
-            print(f"対象期間: {args.month}", file=sys.stderr)
-
-    # データ取得・処理
-    if not args.quiet:
-        print("ActivityWatchからデータを取得中...", file=sys.stderr)
-
-    events = fetch_events(start_date, end_date)
-
-    if not args.quiet:
-        print(f"取得イベント数: {len(events)}", file=sys.stderr)
-
-    work_blocks = process_events(events)
-    daily_work = aggregate_by_work_date(work_blocks)
-
-    if not args.quiet:
-        print(f"勤務日数: {len(daily_work)}", file=sys.stderr)
-
-    # 出力
-    if args.output:
-        # ファイル出力: CSV形式（BOM付きUTF-8、Excel対応）
-        csv_content = generate_csv(daily_work)
-        with open(args.output, "w", encoding="utf-8-sig") as f:
-            f.write(csv_content)
-        if not args.quiet:
-            print(f"出力完了: {args.output}", file=sys.stderr)
-    else:
-        # 標準出力: コンパクト形式
-        print(generate_compact(daily_work, start_date, end_date), end="")
+            print(calendar.compact(period), end="")
 
 
 if __name__ == "__main__":
-    main()
+    CLI().run()
