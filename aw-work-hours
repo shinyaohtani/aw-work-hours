@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""
+ActivityWatchから日ごとの勤務時間をCSVにエクスポートするコマンド
+
+Usage:
+    aw-work-hours                    # 今月の勤務時間を出力
+    aw-work-hours --month=last       # 先月の勤務時間を出力
+    aw-work-hours --month=2025-11    # 2025年11月の勤務時間を出力
+    aw-work-hours --month=all        # 全期間の勤務時間を出力
+
+勤務日の判定ルール:
+- 継続している勤務は何時までも同じ日として扱う
+- 5:00-8:00の間に新たに開始した勤務は新しい日として扱う
+- 24:00をまたいだ場合は26:00のような表記にする
+"""
+
+import argparse
+import json
+import sys
+import urllib.request
+import urllib.error
+import urllib.parse
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+API_BASE = "http://127.0.0.1:5600/api/0"
+BUCKET_ID = "aw-watcher-afk_PC-MC2408N0009B.local"
+TIMEZONE = ZoneInfo("Asia/Tokyo")
+
+# 勤務が途切れたとみなすAFK時間（秒）- 3時間以上離席で途切れとみなす
+WORK_GAP_THRESHOLD = 3 * 60 * 60
+
+
+def parse_month_arg(month_str: str) -> tuple:
+    """
+    --month引数をパースして開始日・終了日を返す
+    Returns: (start_date, end_date) as ISO format strings, or (None, None) for all
+    """
+    now = datetime.now(TIMEZONE)
+
+    if month_str == "this":
+        # 今月
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # 翌月1日を計算
+        if now.month == 12:
+            end = start.replace(year=now.year + 1, month=1)
+        else:
+            end = start.replace(month=now.month + 1)
+        return start.isoformat(), end.isoformat()
+
+    elif month_str == "last":
+        # 先月
+        first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = first_of_this_month
+        # 先月1日を計算
+        if now.month == 1:
+            start = first_of_this_month.replace(year=now.year - 1, month=12)
+        else:
+            start = first_of_this_month.replace(month=now.month - 1)
+        return start.isoformat(), end.isoformat()
+
+    elif month_str == "all":
+        # 全期間
+        return None, None
+
+    else:
+        # YYYY-MM形式
+        try:
+            year, month = map(int, month_str.split("-"))
+            start = datetime(year, month, 1, tzinfo=TIMEZONE)
+            # 翌月1日を計算
+            if month == 12:
+                end = start.replace(year=year + 1, month=1)
+            else:
+                end = start.replace(month=month + 1)
+            return start.isoformat(), end.isoformat()
+        except ValueError:
+            print(f"エラー: 無効な月指定です: {month_str}", file=sys.stderr)
+            print("使用可能な形式: this, last, all, YYYY-MM (例: 2025-11)", file=sys.stderr)
+            sys.exit(1)
+
+
+def fetch_events(start_date: str = None, end_date: str = None) -> list:
+    """ActivityWatch APIからAFKイベントを取得"""
+    url = f"{API_BASE}/buckets/{BUCKET_ID}/events"
+
+    params = {"limit": "-1"}
+    if start_date:
+        params["start"] = start_date
+    if end_date:
+        params["end"] = end_date
+
+    url += "?" + urllib.parse.urlencode(params)
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.URLError as e:
+        print(f"エラー: ActivityWatch APIに接続できません", file=sys.stderr)
+        print(f"ActivityWatchが起動しているか確認してください", file=sys.stderr)
+        print(f"詳細: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def format_time_extended(dt: datetime, base_date) -> str:
+    """時刻を表示用にフォーマット（24時間超え対応）"""
+    days_diff = (dt.date() - base_date).days
+    hour = dt.hour + (days_diff * 24)
+    return f"{hour:02d}:{dt.minute:02d}"
+
+
+def get_work_date(dt: datetime):
+    """勤務日を決定（0:00-5:00は前日扱い）"""
+    if 0 <= dt.hour < 5:
+        return (dt - timedelta(days=1)).date()
+    return dt.date()
+
+
+def process_events(events: list) -> list:
+    """イベントを処理して勤務ブロックを抽出"""
+    not_afk_events = sorted(
+        [e for e in events if e["data"]["status"] == "not-afk"],
+        key=lambda e: e["timestamp"]
+    )
+
+    if not not_afk_events:
+        return []
+
+    work_blocks = []
+    block_start = None
+    block_end = None
+
+    for event in not_afk_events:
+        event_start = datetime.fromisoformat(event["timestamp"]).astimezone(TIMEZONE)
+        event_end = event_start + timedelta(seconds=event["duration"])
+
+        if block_start is None:
+            block_start, block_end = event_start, event_end
+        else:
+            gap = (event_start - block_end).total_seconds()
+
+            # 新しい勤務日の開始判定
+            is_new_workday = (
+                gap > WORK_GAP_THRESHOLD and event_start.hour >= 5
+            )
+
+            if is_new_workday:
+                work_blocks.append((block_start, block_end))
+                block_start, block_end = event_start, event_end
+            else:
+                block_end = max(block_end, event_end)
+
+    if block_start is not None:
+        work_blocks.append((block_start, block_end))
+
+    return work_blocks
+
+
+def aggregate_by_work_date(work_blocks: list) -> dict:
+    """勤務ブロックを勤務日ごとに集計"""
+    daily_work = {}
+
+    for block_start, block_end in work_blocks:
+        work_date = get_work_date(block_start)
+
+        if work_date not in daily_work:
+            daily_work[work_date] = {"start": block_start, "end": block_end}
+        else:
+            if block_start < daily_work[work_date]["start"]:
+                daily_work[work_date]["start"] = block_start
+            if block_end > daily_work[work_date]["end"]:
+                daily_work[work_date]["end"] = block_end
+
+    return daily_work
+
+
+def generate_csv(daily_work: dict) -> str:
+    """CSV文字列を生成（ファイル出力用、Excel対応）"""
+    lines = ["date,weekday,start_time,end_time,duration_hours"]
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+
+    for work_date in sorted(daily_work.keys()):
+        data = daily_work[work_date]
+        start_time = format_time_extended(data["start"], work_date)
+        end_time = format_time_extended(data["end"], work_date)
+        duration = (data["end"] - data["start"]).total_seconds() / 3600
+
+        # Excel文字列形式
+        lines.append(
+            f'="{work_date.strftime("%Y-%m-%d")}",'
+            f'{weekdays[work_date.weekday()]},'
+            f'="{start_time}",'
+            f'="{end_time}",'
+            f'{duration:.2f}'
+        )
+
+    return "\n".join(lines) + "\n"
+
+
+def generate_compact(daily_work: dict) -> str:
+    """コンパクト形式で出力（標準出力用）"""
+    lines = []
+    weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+
+    for work_date in sorted(daily_work.keys()):
+        data = daily_work[work_date]
+        start_time = format_time_extended(data["start"], work_date)
+        end_time = format_time_extended(data["end"], work_date)
+        duration = (data["end"] - data["start"]).total_seconds() / 3600
+
+        lines.append(
+            f'{work_date.strftime("%Y-%m-%d")} {weekdays[work_date.weekday()]}   '
+            f'{start_time} - {end_time}   ({duration:.1f}h)'
+        )
+
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ActivityWatchから勤務時間をCSVにエクスポート",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+例:
+  aw-work-hours                    今月の勤務時間を出力
+  aw-work-hours --month=last       先月の勤務時間を出力
+  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力
+  aw-work-hours --month=all        全期間の勤務時間を出力
+  aw-work-hours -o work.csv        ファイルに出力
+"""
+    )
+    parser.add_argument(
+        "--month", "-m",
+        default="this",
+        help="対象月: this(今月), last(先月), all(全期間), YYYY-MM (デフォルト: this)"
+    )
+    parser.add_argument(
+        "--output", "-o",
+        help="出力ファイル名（指定しない場合は標準出力）"
+    )
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="進捗メッセージを非表示"
+    )
+
+    args = parser.parse_args()
+
+    # 月の範囲をパース
+    start_date, end_date = parse_month_arg(args.month)
+
+    if not args.quiet:
+        if args.month == "all":
+            print("対象期間: 全期間", file=sys.stderr)
+        elif args.month == "this":
+            print(f"対象期間: 今月", file=sys.stderr)
+        elif args.month == "last":
+            print(f"対象期間: 先月", file=sys.stderr)
+        else:
+            print(f"対象期間: {args.month}", file=sys.stderr)
+
+    # データ取得・処理
+    if not args.quiet:
+        print("ActivityWatchからデータを取得中...", file=sys.stderr)
+
+    events = fetch_events(start_date, end_date)
+
+    if not args.quiet:
+        print(f"取得イベント数: {len(events)}", file=sys.stderr)
+
+    work_blocks = process_events(events)
+    daily_work = aggregate_by_work_date(work_blocks)
+
+    if not args.quiet:
+        print(f"勤務日数: {len(daily_work)}", file=sys.stderr)
+
+    # 出力
+    if args.output:
+        # ファイル出力: CSV形式（BOM付きUTF-8、Excel対応）
+        csv_content = generate_csv(daily_work)
+        with open(args.output, "w", encoding="utf-8-sig") as f:
+            f.write(csv_content)
+        if not args.quiet:
+            print(f"出力完了: {args.output}", file=sys.stderr)
+    else:
+        # 標準出力: コンパクト形式
+        print(generate_compact(daily_work), end="")
+
+
+if __name__ == "__main__":
+    main()
