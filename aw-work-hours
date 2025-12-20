@@ -208,10 +208,13 @@ def generate_compact(daily_work: dict) -> str:
         end_time = format_time_extended(data["end"], work_date)
         duration = (data["end"] - data["start"]).total_seconds() / 3600
 
-        lines.append(
-            f'{work_date.strftime("%Y-%m-%d")} {weekdays[work_date.weekday()]}   '
-            f'{start_time} - {end_time}   ({duration:.1f}h)'
-        )
+        if round(duration, 1) == 0:
+            lines.append(f'{work_date.strftime("%Y-%m-%d")} {weekdays[work_date.weekday()]}')
+        else:
+            lines.append(
+                f'{work_date.strftime("%Y-%m-%d")} {weekdays[work_date.weekday()]}   '
+                f'{start_time} - {end_time}   ({duration:.1f}h)'
+            )
 
     return "\n".join(lines) + "\n" if lines else ""
 
