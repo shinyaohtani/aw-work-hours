@@ -197,24 +197,43 @@ def generate_csv(daily_work: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_compact(daily_work: dict) -> str:
+def generate_compact(daily_work: dict, start_date: str = None, end_date: str = None) -> str:
     """コンパクト形式で出力（標準出力用）"""
     lines = []
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
 
-    for work_date in sorted(daily_work.keys()):
-        data = daily_work[work_date]
-        start_time = format_time_extended(data["start"], work_date)
-        end_time = format_time_extended(data["end"], work_date)
-        duration = (data["end"] - data["start"]).total_seconds() / 3600
+    # 表示する日付範囲を決定
+    if start_date and end_date:
+        # 指定された期間の全日を表示
+        start = datetime.fromisoformat(start_date).date()
+        end = datetime.fromisoformat(end_date).date()
+    elif daily_work:
+        # データの最小日〜最大日
+        start = min(daily_work.keys())
+        end = max(daily_work.keys()) + timedelta(days=1)
+    else:
+        return ""
 
-        if round(duration, 1) == 0:
-            lines.append(f'{work_date.strftime("%Y-%m-%d")} {weekdays[work_date.weekday()]}')
+    current = start
+    while current < end:
+        if current in daily_work:
+            data = daily_work[current]
+            start_time = format_time_extended(data["start"], current)
+            end_time = format_time_extended(data["end"], current)
+            duration = (data["end"] - data["start"]).total_seconds() / 3600
+
+            if round(duration, 1) == 0:
+                lines.append(f'{current.strftime("%Y-%m-%d")} {weekdays[current.weekday()]}')
+            else:
+                lines.append(
+                    f'{current.strftime("%Y-%m-%d")} {weekdays[current.weekday()]}   '
+                    f'{start_time} - {end_time}   ({duration:.1f}h)'
+                )
         else:
-            lines.append(
-                f'{work_date.strftime("%Y-%m-%d")} {weekdays[work_date.weekday()]}   '
-                f'{start_time} - {end_time}   ({duration:.1f}h)'
-            )
+            # データがない日は日付のみ表示
+            lines.append(f'{current.strftime("%Y-%m-%d")} {weekdays[current.weekday()]}')
+
+        current += timedelta(days=1)
 
     return "\n".join(lines) + "\n" if lines else ""
 
@@ -287,7 +306,7 @@ def main():
             print(f"出力完了: {args.output}", file=sys.stderr)
     else:
         # 標準出力: コンパクト形式
-        print(generate_compact(daily_work), end="")
+        print(generate_compact(daily_work, start_date, end_date), end="")
 
 
 if __name__ == "__main__":
