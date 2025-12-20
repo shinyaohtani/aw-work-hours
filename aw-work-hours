@@ -40,47 +40,26 @@ class MonthPeriod:
     @classmethod
     def parse(cls, month_str: str) -> "MonthPeriod":
         now: datetime = datetime.now(_TIMEZONE)
+        first: datetime = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
         if month_str == "this":
-            return cls._this_month(now)
+            end: datetime = first.replace(year=first.year + 1, month=1) if now.month == 12 else first.replace(month=now.month + 1)
+            return cls(first, end)
         elif month_str == "last":
-            return cls._last_month(now)
+            start: datetime = first.replace(year=first.year - 1, month=12) if now.month == 1 else first.replace(month=now.month - 1)
+            return cls(start, first)
         elif month_str == "all":
             return cls(None, None)
         else:
-            return cls._specified_month(month_str)
-
-    @classmethod
-    def _this_month(cls, now: datetime) -> "MonthPeriod":
-        start: datetime = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if now.month == 12:
-            end: datetime = start.replace(year=now.year + 1, month=1)
-        else:
-            end = start.replace(month=now.month + 1)
-        return cls(start, end)
-
-    @classmethod
-    def _last_month(cls, now: datetime) -> "MonthPeriod":
-        first: datetime = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if now.month == 1:
-            start: datetime = first.replace(year=now.year - 1, month=12)
-        else:
-            start = first.replace(month=now.month - 1)
-        return cls(start, first)
-
-    @classmethod
-    def _specified_month(cls, month_str: str) -> "MonthPeriod":
-        try:
-            year, month = map(int, month_str.split("-"))
-            start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
-            if month == 12:
-                end: datetime = start.replace(year=year + 1, month=1)
-            else:
-                end = start.replace(month=month + 1)
-            return cls(start, end)
-        except ValueError:
-            print(f"エラー: 無効な月指定です: {month_str}", file=sys.stderr)
-            print("使用可能な形式: this, last, all, YYYY-MM (例: 2025-11)", file=sys.stderr)
-            sys.exit(1)
+            try:
+                year, month = map(int, month_str.split("-"))
+                start = datetime(year, month, 1, tzinfo=_TIMEZONE)
+                end = start.replace(year=year + 1, month=1) if month == 12 else start.replace(month=month + 1)
+                return cls(start, end)
+            except ValueError:
+                print(f"エラー: 無効な月指定です: {month_str}", file=sys.stderr)
+                print("使用可能な形式: this, last, all, YYYY-MM (例: 2025-11)", file=sys.stderr)
+                sys.exit(1)
 
     @property
     def start(self) -> str | None:
@@ -107,26 +86,22 @@ class AFKEvents:
 
     @classmethod
     def fetch(cls, start: str | None, end: str | None) -> "AFKEvents":
-        url: str = cls._build_url(start, end)
-        try:
-            with urllib.request.urlopen(url, timeout=30) as response:
-                events: list[dict] = json.loads(response.read().decode())
-                return cls(events)
-        except urllib.error.URLError as e:
-            print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
-            print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
-            print(f"詳細: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    @classmethod
-    def _build_url(cls, start: str | None, end: str | None) -> str:
         url: str = f"{_API_BASE}/buckets/{_BUCKET_ID}/events"
         params: dict[str, str] = {"limit": "-1"}
         if start:
             params["start"] = start
         if end:
             params["end"] = end
-        return url + "?" + urllib.parse.urlencode(params)
+        url += "?" + urllib.parse.urlencode(params)
+
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return cls(json.loads(response.read().decode()))
+        except urllib.error.URLError as e:
+            print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
+            print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
+            print(f"詳細: {e}", file=sys.stderr)
+            sys.exit(1)
 
     @property
     def count(self) -> int:
@@ -138,9 +113,7 @@ class AFKEvents:
             [e for e in self._events if e["data"]["status"] == "not-afk"],
             key=lambda e: e["timestamp"]
         )
-        if not not_afk:
-            return []
-        return self._extract_blocks(not_afk)
+        return self._extract_blocks(not_afk) if not_afk else []
 
     def _extract_blocks(self, events: list[dict]) -> list[tuple[datetime, datetime]]:
         blocks: list[tuple[datetime, datetime]] = []
@@ -176,22 +149,13 @@ class WorkCalendar:
     def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
         daily: dict[date, tuple[datetime, datetime]] = {}
         for block_start, block_end in blocks:
-            work_date: date = cls._work_date(block_start)
+            work_date: date = (block_start - timedelta(days=1)).date() if 0 <= block_start.hour < 5 else block_start.date()
             if work_date not in daily:
                 daily[work_date] = (block_start, block_end)
             else:
-                existing_start, existing_end = daily[work_date]
-                daily[work_date] = (
-                    min(block_start, existing_start),
-                    max(block_end, existing_end)
-                )
+                s, e = daily[work_date]
+                daily[work_date] = (min(block_start, s), max(block_end, e))
         return cls(daily)
-
-    @classmethod
-    def _work_date(cls, dt: datetime) -> date:
-        if 0 <= dt.hour < 5:
-            return (dt - timedelta(days=1)).date()
-        return dt.date()
 
     @property
     def days(self) -> int:
@@ -201,57 +165,37 @@ class WorkCalendar:
         lines: list[str] = ["date,weekday,start_time,end_time,duration_hours"]
         for work_date in sorted(self._daily.keys()):
             start, end = self._daily[work_date]
-            start_time: str = self._format_time(start, work_date)
-            end_time: str = self._format_time(end, work_date)
             duration: float = (end - start).total_seconds() / 3600
             lines.append(
-                f'="{work_date.strftime("%Y-%m-%d")}",'
-                f'{_WEEKDAYS[work_date.weekday()]},'
-                f'="{start_time}",="{end_time}",{duration:.2f}'
+                f'="{work_date.strftime("%Y-%m-%d")}",{_WEEKDAYS[work_date.weekday()]},'
+                f'="{self._format_time(start, work_date)}",="{self._format_time(end, work_date)}",{duration:.2f}'
             )
         return "\n".join(lines) + "\n"
 
     def compact(self, period: MonthPeriod) -> str:
         today: date = datetime.now(_TIMEZONE).date()
-        start, end = self._compact_range(period, today)
-        if start is None:
-            return ""
-        return self._format_compact(start, end)
-
-    def _compact_range(self, period: MonthPeriod, today: date) -> tuple[date | None, date | None]:
         if period.start_date and period.end_date:
-            start: date = period.start_date
-            end: date = min(period.end_date, today + timedelta(days=1))
+            start, end = period.start_date, min(period.end_date, today + timedelta(days=1))
         elif self._daily:
-            start = min(self._daily.keys())
-            end = max(self._daily.keys()) + timedelta(days=1)
+            start, end = min(self._daily.keys()), max(self._daily.keys()) + timedelta(days=1)
         else:
-            return None, None
-        return start, end
+            return ""
 
-    def _format_compact(self, start: date, end: date) -> str:
         lines: list[str] = []
         current: date = start
         while current < end:
-            lines.append(self._format_day(current))
+            prefix: str = f'{current.strftime("%Y-%m-%d")} {_WEEKDAYS[current.weekday()]}'
+            if current in self._daily:
+                s, e = self._daily[current]
+                duration: float = (e - s).total_seconds() / 3600
+                if round(duration, 1) != 0:
+                    prefix = f'{prefix}   {self._format_time(s, current)} - {self._format_time(e, current)}   ({duration:.1f}h)'
+            lines.append(prefix)
             current += timedelta(days=1)
         return "\n".join(lines) + "\n" if lines else ""
 
-    def _format_day(self, d: date) -> str:
-        prefix: str = f'{d.strftime("%Y-%m-%d")} {_WEEKDAYS[d.weekday()]}'
-        if d not in self._daily:
-            return prefix
-        start, end = self._daily[d]
-        duration: float = (end - start).total_seconds() / 3600
-        if round(duration, 1) == 0:
-            return prefix
-        start_time: str = self._format_time(start, d)
-        end_time: str = self._format_time(end, d)
-        return f'{prefix}   {start_time} - {end_time}   ({duration:.1f}h)'
-
     def _format_time(self, dt: datetime, base: date) -> str:
-        days_diff: int = (dt.date() - base).days
-        hour: int = dt.hour + (days_diff * 24)
+        hour: int = dt.hour + ((dt.date() - base).days * 24)
         return f"{hour:02d}:{dt.minute:02d}"
 
 
@@ -261,8 +205,9 @@ class CLI:
     def run(self) -> None:
         args: argparse.Namespace = self._args()
         period: MonthPeriod = MonthPeriod.parse(args.month)
+        labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
 
-        self._status(f"対象期間: {self._period_label(args.month)}", args.quiet)
+        self._status(f"対象期間: {labels.get(args.month, args.month)}", args.quiet)
         self._status("ActivityWatchからデータを取得中...", args.quiet)
 
         events: AFKEvents = AFKEvents.fetch(period.start, period.end)
@@ -274,31 +219,23 @@ class CLI:
         self._output(calendar, period, args)
 
     def _args(self) -> argparse.Namespace:
-        parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        p: argparse.ArgumentParser = argparse.ArgumentParser(
             description="ActivityWatchから勤務時間をCSVにエクスポート",
             formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="""
-例:
-  aw-work-hours                    今月の勤務時間を出力
-  aw-work-hours --month=last       先月の勤務時間を出力
-  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力
-  aw-work-hours --month=all        全期間の勤務時間を出力
-  aw-work-hours -o work.csv        ファイルに出力
-"""
+            epilog="例:\n  aw-work-hours                    今月の勤務時間を出力\n"
+                   "  aw-work-hours --month=last       先月の勤務時間を出力\n"
+                   "  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力\n"
+                   "  aw-work-hours --month=all        全期間の勤務時間を出力\n"
+                   "  aw-work-hours -o work.csv        ファイルに出力"
         )
-        parser.add_argument("--month", "-m", default="this",
-                            help="対象月: this(今月), last(先月), all(全期間), YYYY-MM")
-        parser.add_argument("--output", "-o", help="出力ファイル名")
-        parser.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
-        return parser.parse_args()
+        p.add_argument("--month", "-m", default="this", help="対象月: this(今月), last(先月), all(全期間), YYYY-MM")
+        p.add_argument("--output", "-o", help="出力ファイル名")
+        p.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
+        return p.parse_args()
 
     def _status(self, msg: str, quiet: bool) -> None:
         if not quiet:
             print(msg, file=sys.stderr)
-
-    def _period_label(self, month: str) -> str:
-        labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
-        return labels.get(month, month)
 
     def _output(self, calendar: WorkCalendar, period: MonthPeriod, args: argparse.Namespace) -> None:
         if args.output:
