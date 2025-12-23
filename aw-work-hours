@@ -157,15 +157,71 @@ class AFKEvents:
             blocks.append((block_start, block_end))
         return blocks
 
+    def daily_active_seconds(self) -> dict[date, float]:
+        result: dict[date, float] = {}
+        for event in self._not_afk_events():
+            event_start: datetime = datetime.fromisoformat(
+                event["timestamp"]
+            ).astimezone(_TIMEZONE)
+            wd: date = self._work_date(event_start)
+            result[wd] = result.get(wd, 0) + event["duration"]
+        return result
+
+    def daily_max_gap_seconds(self) -> dict[date, float]:
+        events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
+        for event in self._not_afk_events():
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
+                _TIMEZONE
+            )
+            end: datetime = start + timedelta(seconds=event["duration"])
+            wd: date = self._work_date(start)
+            if wd not in events_by_day:
+                events_by_day[wd] = []
+            events_by_day[wd].append((start, end))
+        return self._calc_max_gaps(events_by_day)
+
+    def _calc_max_gaps(
+        self, events_by_day: dict[date, list[tuple[datetime, datetime]]]
+    ) -> dict[date, float]:
+        result: dict[date, float] = {}
+        for wd, events in events_by_day.items():
+            sorted_events: list[tuple[datetime, datetime]] = sorted(events)
+            max_gap: float = 0
+            for i in range(1, len(sorted_events)):
+                gap: float = (
+                    sorted_events[i][0] - sorted_events[i - 1][1]
+                ).total_seconds()
+                max_gap = max(max_gap, gap)
+            result[wd] = max_gap
+        return result
+
+    def _not_afk_events(self) -> list[dict]:
+        return [e for e in self._events if e["data"]["status"] == "not-afk"]
+
+    def _work_date(self, dt: datetime) -> date:
+        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
+
 
 class WorkCalendar:
     """勤務カレンダー"""
 
-    def __init__(self, daily: dict[date, tuple[datetime, datetime]]) -> None:
+    def __init__(
+        self,
+        daily: dict[date, tuple[datetime, datetime]],
+        active: dict[date, float],
+        max_gap: dict[date, float],
+    ) -> None:
         self._daily: dict[date, tuple[datetime, datetime]] = daily
+        self._active: dict[date, float] = active
+        self._max_gap: dict[date, float] = max_gap
 
     @classmethod
-    def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
+    def from_blocks(
+        cls,
+        blocks: list[tuple[datetime, datetime]],
+        active: dict[date, float],
+        max_gap: dict[date, float],
+    ) -> "WorkCalendar":
         daily: dict[date, tuple[datetime, datetime]] = {}
         for block_start, block_end in blocks:
             work_date: date = (
@@ -178,7 +234,7 @@ class WorkCalendar:
             else:
                 s, e = daily[work_date]
                 daily[work_date] = (min(block_start, s), max(block_end, e))
-        return cls(daily)
+        return cls(daily, active, max_gap)
 
     @property
     def days(self) -> int:
@@ -219,10 +275,18 @@ class WorkCalendar:
         if d not in self._daily:
             return prefix
         s, e = self._daily[d]
-        duration: float = (e - s).total_seconds() / 3600
-        if round(duration, 1) == 0:
+        span: float = (e - s).total_seconds() / 3600
+        if round(span, 1) == 0:
             return prefix
-        return f"{prefix}   {self._format_time(s, d)} - {self._format_time(e, d)}   ({duration:.1f}h)"
+        active: float = self._active.get(d, 0) / 3600
+        afk: float = span - active
+        base: str = (
+            f"{prefix}   {self._format_time(s, d)} - {self._format_time(e, d)}   ({span:.1f}h)"
+        )
+        if afk < 0.05:
+            return base
+        max_gap: float = self._max_gap.get(d, 0) / 3600
+        return f"{base}   -{afk:.1f}h (max:-{max_gap:.1f}h)"
 
     def _format_time(self, dt: datetime, base: date) -> str:
         hour: int = dt.hour + ((dt.date() - base).days * 24)
@@ -243,7 +307,11 @@ class CLI:
         events: AFKEvents = AFKEvents.fetch(period.start, period.end)
         self._status(f"取得イベント数: {events.count}", args.quiet)
 
-        calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
+        calendar: WorkCalendar = WorkCalendar.from_blocks(
+            events.work_blocks,
+            events.daily_active_seconds(),
+            events.daily_max_gap_seconds(),
+        )
         self._status(f"勤務日数: {calendar.days}", args.quiet)
 
         self._output(calendar, period, args)
