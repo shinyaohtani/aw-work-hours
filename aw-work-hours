@@ -162,8 +162,8 @@ class DailyWork:
     def gaps(self) -> dict[date, float]:
         events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
         for event in self._not_afk:
-            if event["duration"] < 1:
-                continue  # 1秒未満のイベント（ハートビート/ノイズ）を除外
+            if event["duration"] < 5:
+                continue  # 5秒未満のイベント（ノイズ/ミス）を除外
             start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
                 _TIMEZONE
             )
