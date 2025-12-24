@@ -241,13 +241,19 @@ class WorkCalendar:
         return len(self._daily)
 
     def csv(self) -> str:
-        lines: list[str] = ["date,weekday,start_time,end_time,duration_hours"]
+        lines: list[str] = [
+            "date,weekday,start_time,end_time,duration_hours,afk_hours,max_gap_hours"
+        ]
         for work_date in sorted(self._daily.keys()):
             start, end = self._daily[work_date]
-            duration: float = (end - start).total_seconds() / 3600
+            span: float = (end - start).total_seconds() / 3600
+            active: float = self._active.get(work_date, 0) / 3600
+            afk: float = span - active
+            max_gap: float = self._max_gap.get(work_date, 0) / 3600
             lines.append(
                 f'="{work_date.strftime("%Y-%m-%d")}",{_WEEKDAYS[work_date.weekday()]},'
-                f'="{self._format_time(start, work_date)}",="{self._format_time(end, work_date)}",{duration:.2f}'
+                f'="{self._format_time(start, work_date)}",="{self._format_time(end, work_date)}",'
+                f"{span:.2f},{afk:.2f},{max_gap:.2f}"
             )
         return "\n".join(lines) + "\n"
 
