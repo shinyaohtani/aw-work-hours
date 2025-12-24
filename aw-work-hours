@@ -39,60 +39,41 @@ class MonthPeriod:
 
     @classmethod
     def parse(cls, month_str: str) -> "MonthPeriod":
-        now: datetime = datetime.now(_TIMEZONE)
-        first: datetime = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        if month_str == "this":
-            return cls._from_month(first, now.month, now.year)
-        elif month_str == "last":
-            prev_year: int = first.year - 1 if now.month == 1 else first.year
-            prev_month: int = 12 if now.month == 1 else now.month - 1
-            return cls._from_month(
-                first.replace(year=prev_year, month=prev_month), prev_month, prev_year
-            )
-        elif month_str == "all":
+        if month_str == "all":
             return cls(None, None)
-        else:
-            return cls._parse_yyyymm(month_str)
-
-    @classmethod
-    def _from_month(cls, start: datetime, month: int, year: int) -> "MonthPeriod":
-        end: datetime = (
-            start.replace(year=year + 1, month=1)
-            if month == 12
-            else start.replace(month=month + 1)
-        )
+        year, month = cls._parse_year_month(month_str)
+        start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
+        end_year, end_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        end: datetime = datetime(end_year, end_month, 1, tzinfo=_TIMEZONE)
         return cls(start, end)
 
     @classmethod
-    def _parse_yyyymm(cls, month_str: str) -> "MonthPeriod":
+    def _parse_year_month(cls, month_str: str) -> tuple[int, int]:
+        now: datetime = datetime.now(_TIMEZONE)
+        if month_str == "this":
+            return now.year, now.month
+        elif month_str == "last":
+            return (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
         try:
             year, month = map(int, month_str.split("-"))
-            start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
-            return cls._from_month(start, month, year)
+            return year, month
         except ValueError:
             print(f"エラー: 無効な月指定です: {month_str}", file=sys.stderr)
-            print(
-                "使用可能な形式: this, last, all, YYYY-MM (例: 2025-11)",
-                file=sys.stderr,
-            )
             sys.exit(1)
 
     @property
-    def start(self) -> str | None:
-        return self._start.isoformat() if self._start else None
+    def iso(self) -> tuple[str | None, str | None]:
+        return (
+            self._start.isoformat() if self._start else None,
+            self._end.isoformat() if self._end else None,
+        )
 
     @property
-    def end(self) -> str | None:
-        return self._end.isoformat() if self._end else None
-
-    @property
-    def start_date(self) -> date | None:
-        return self._start.date() if self._start else None
-
-    @property
-    def end_date(self) -> date | None:
-        return self._end.date() if self._end else None
+    def dates(self) -> tuple[date | None, date | None]:
+        return (
+            self._start.date() if self._start else None,
+            self._end.date() if self._end else None,
+        )
 
 
 class AFKEvents:
@@ -157,9 +138,19 @@ class AFKEvents:
             blocks.append((block_start, block_end))
         return blocks
 
-    def daily_active_seconds(self) -> dict[date, float]:
+
+class DailyWork:
+    """日ごとの勤務統計"""
+
+    def __init__(self, events: list[dict]) -> None:
+        self._not_afk: list[dict] = [
+            e for e in events if e["data"]["status"] == "not-afk"
+        ]
+
+    @property
+    def active(self) -> dict[date, float]:
         result: dict[date, float] = {}
-        for event in self._not_afk_events():
+        for event in self._not_afk:
             event_start: datetime = datetime.fromisoformat(
                 event["timestamp"]
             ).astimezone(_TIMEZONE)
@@ -167,9 +158,10 @@ class AFKEvents:
             result[wd] = result.get(wd, 0) + event["duration"]
         return result
 
-    def daily_max_gap_seconds(self) -> dict[date, float]:
+    @property
+    def gaps(self) -> dict[date, float]:
         events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
-        for event in self._not_afk_events():
+        for event in self._not_afk:
             start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
                 _TIMEZONE
             )
@@ -194,9 +186,6 @@ class AFKEvents:
                 max_gap = max(max_gap, gap)
             result[wd] = max_gap
         return result
-
-    def _not_afk_events(self) -> list[dict]:
-        return [e for e in self._events if e["data"]["status"] == "not-afk"]
 
     def _work_date(self, dt: datetime) -> date:
         return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
@@ -240,43 +229,84 @@ class WorkCalendar:
     def days(self) -> int:
         return len(self._daily)
 
-    def csv(self) -> str:
+    @property
+    def daily(self) -> dict[date, tuple[datetime, datetime]]:
+        return self._daily
+
+
+class WorkCSV:
+    """CSV出力"""
+
+    def __init__(
+        self,
+        daily: dict[date, tuple[datetime, datetime]],
+        active: dict[date, float],
+        max_gap: dict[date, float],
+    ) -> None:
+        self._daily: dict[date, tuple[datetime, datetime]] = daily
+        self._active: dict[date, float] = active
+        self._max_gap: dict[date, float] = max_gap
+
+    def content(self) -> str:
         lines: list[str] = [
             "date,weekday,start_time,end_time,duration_hours,afk_hours,max_gap_hours"
         ]
         for work_date in sorted(self._daily.keys()):
-            start, end = self._daily[work_date]
-            span: float = (end - start).total_seconds() / 3600
-            active: float = self._active.get(work_date, 0) / 3600
-            afk: float = span - active
-            max_gap: float = self._max_gap.get(work_date, 0) / 3600
-            lines.append(
-                f'="{work_date.strftime("%Y-%m-%d")}",{_WEEKDAYS[work_date.weekday()]},'
-                f'="{self._format_time(start, work_date)}",="{self._format_time(end, work_date)}",'
-                f"{span:.2f},{afk:.2f},{max_gap:.2f}"
-            )
+            lines.append(self._row(work_date))
         return "\n".join(lines) + "\n"
 
-    def compact(self, period: MonthPeriod) -> str:
+    def _row(self, work_date: date) -> str:
+        start, end = self._daily[work_date]
+        span: float = (end - start).total_seconds() / 3600
+        active: float = self._active.get(work_date, 0) / 3600
+        afk: float = span - active
+        max_gap: float = self._max_gap.get(work_date, 0) / 3600
+        return (
+            f'="{work_date.strftime("%Y-%m-%d")}",{_WEEKDAYS[work_date.weekday()]},'
+            f'="{self._time(start, work_date)}",="{self._time(end, work_date)}",'
+            f"{span:.2f},{afk:.2f},{max_gap:.2f}"
+        )
+
+    def _time(self, dt: datetime, base: date) -> str:
+        hour: int = dt.hour + ((dt.date() - base).days * 24)
+        return f"{hour:02d}:{dt.minute:02d}"
+
+
+class WorkText:
+    """テキスト出力"""
+
+    def __init__(
+        self,
+        daily: dict[date, tuple[datetime, datetime]],
+        active: dict[date, float],
+        max_gap: dict[date, float],
+        period: MonthPeriod,
+    ) -> None:
+        self._daily: dict[date, tuple[datetime, datetime]] = daily
+        self._active: dict[date, float] = active
+        self._max_gap: dict[date, float] = max_gap
+        self._period: MonthPeriod = period
+
+    def content(self) -> str:
         today: date = datetime.now(_TIMEZONE).date()
-        if period.start_date and period.end_date:
-            start: date = period.start_date
-            end: date = min(period.end_date, today + timedelta(days=1))
+        start_date, end_date = self._period.dates
+        if start_date and end_date:
+            start: date = start_date
+            end: date = min(end_date, today + timedelta(days=1))
         elif self._daily:
-            start, end = min(self._daily.keys()), max(self._daily.keys()) + timedelta(
-                days=1
-            )
+            start = min(self._daily.keys())
+            end = max(self._daily.keys()) + timedelta(days=1)
         else:
             return ""
 
         lines: list[str] = []
         current: date = start
         while current < end:
-            lines.append(self._format_day(current))
+            lines.append(self._day(current))
             current += timedelta(days=1)
         return "\n".join(lines) + "\n" if lines else ""
 
-    def _format_day(self, d: date) -> str:
+    def _day(self, d: date) -> str:
         prefix: str = f'{d.strftime("%Y-%m-%d")} {_WEEKDAYS[d.weekday()]}'
         if d not in self._daily:
             return prefix
@@ -287,14 +317,14 @@ class WorkCalendar:
         active: float = self._active.get(d, 0) / 3600
         afk: float = span - active
         base: str = (
-            f"{prefix}   {self._format_time(s, d)} - {self._format_time(e, d)}   ({span:.1f}h)"
+            f"{prefix}   {self._time(s, d)} - {self._time(e, d)}   ({span:.1f}h)"
         )
         if afk < 0.05:
             return base
         max_gap: float = self._max_gap.get(d, 0) / 3600
         return f"{base}   -{afk:.1f}h (max:-{max_gap:.1f}h)"
 
-    def _format_time(self, dt: datetime, base: date) -> str:
+    def _time(self, dt: datetime, base: date) -> str:
         hour: int = dt.hour + ((dt.date() - base).days * 24)
         return f"{hour:02d}:{dt.minute:02d}"
 
@@ -310,17 +340,17 @@ class CLI:
         self._status(f"対象期間: {labels.get(args.month, args.month)}", args.quiet)
         self._status("ActivityWatchからデータを取得中...", args.quiet)
 
-        events: AFKEvents = AFKEvents.fetch(period.start, period.end)
+        start_iso, end_iso = period.iso
+        events: AFKEvents = AFKEvents.fetch(start_iso, end_iso)
         self._status(f"取得イベント数: {events.count}", args.quiet)
 
+        daily_work: DailyWork = DailyWork(events._events)
         calendar: WorkCalendar = WorkCalendar.from_blocks(
-            events.work_blocks,
-            events.daily_active_seconds(),
-            events.daily_max_gap_seconds(),
+            events.work_blocks, daily_work.active, daily_work.gaps
         )
         self._status(f"勤務日数: {calendar.days}", args.quiet)
 
-        self._output(calendar, period, args)
+        self._output(calendar, daily_work, period, args)
 
     def _args(self) -> argparse.Namespace:
         p: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -347,14 +377,22 @@ class CLI:
             print(msg, file=sys.stderr)
 
     def _output(
-        self, calendar: WorkCalendar, period: MonthPeriod, args: argparse.Namespace
+        self,
+        calendar: WorkCalendar,
+        daily_work: DailyWork,
+        period: MonthPeriod,
+        args: argparse.Namespace,
     ) -> None:
         if args.output:
+            csv: WorkCSV = WorkCSV(calendar.daily, daily_work.active, daily_work.gaps)
             with open(args.output, "w", encoding="utf-8-sig") as f:
-                f.write(calendar.csv())
+                f.write(csv.content())
             self._status(f"出力完了: {args.output}", args.quiet)
         else:
-            print(calendar.compact(period), end="")
+            text: WorkText = WorkText(
+                calendar.daily, daily_work.active, daily_work.gaps, period
+            )
+            print(text.content(), end="")
 
 
 if __name__ == "__main__":
