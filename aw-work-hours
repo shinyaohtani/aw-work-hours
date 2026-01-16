@@ -301,11 +301,13 @@ class WorkText:
         active: dict[date, float],
         max_gap: dict[date, float],
         period: MonthPeriod,
+        no_colon: bool = False,
     ) -> None:
         self._daily: dict[date, tuple[datetime, datetime]] = daily
         self._active: dict[date, float] = active
         self._max_gap: dict[date, float] = max_gap
         self._period: MonthPeriod = period
+        self._no_colon: bool = no_colon
 
     def content(self) -> str:
         today: date = datetime.now(_TIMEZONE).date()
@@ -346,7 +348,8 @@ class WorkText:
 
     def _time(self, dt: datetime, base: date) -> str:
         hour: int = dt.hour + ((dt.date() - base).days * 24)
-        return f"{hour:02d}:{dt.minute:02d}"
+        sep: str = "" if self._no_colon else ":"
+        return f"{hour:02d}{sep}{dt.minute:02d}"
 
 
 class CLI:
@@ -390,6 +393,9 @@ class CLI:
         )
         p.add_argument("--output", "-o", help="出力ファイル名")
         p.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
+        p.add_argument(
+            "--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）"
+        )
         return p.parse_args()
 
     def _status(self, msg: str, quiet: bool) -> None:
@@ -412,7 +418,7 @@ class CLI:
             self._status(f"出力完了: {args.output}", args.quiet)
         else:
             text: WorkText = WorkText(
-                calendar.daily, daily_work.active, daily_work.gaps, period
+                calendar.daily, daily_work.active, daily_work.gaps, period, args.no_colon
             )
             print(text.content(), end="")
 
