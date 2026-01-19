@@ -237,7 +237,7 @@ class HolidayCalendar:
                 data: dict[str, str] = json.loads(raw.decode("utf-8"))
             self._cache_dir.mkdir(exist_ok=True)
             with open(cache_file, "w", encoding="utf-8") as f:
-                f.write(raw.decode("utf-8"))
+                f.write(raw.decode("utf-8") + "\n")
             return {date.fromisoformat(d) for d in data.keys()}
         except urllib.error.URLError:
             return set()
