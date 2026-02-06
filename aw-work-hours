@@ -409,6 +409,202 @@ class WorkText:
         return f"{hour:02d}{sep}{dt.minute:02d}"
 
 
+class WorkHTML:
+    """HTML出力"""
+
+    def __init__(
+        self,
+        events: list[dict],
+        daily: dict[date, tuple[datetime, datetime]],
+        active: dict[date, float],
+        max_gap: dict[date, float],
+        period: MonthPeriod,
+        holidays: HolidayCalendar,
+        no_colon: bool = False,
+    ) -> None:
+        self._events: list[dict] = [
+            e for e in events
+            if e["data"]["status"] == "not-afk" and e["duration"] >= 5
+        ]
+        self._daily: dict[date, tuple[datetime, datetime]] = daily
+        self._active: dict[date, float] = active
+        self._max_gap: dict[date, float] = max_gap
+        self._period: MonthPeriod = period
+        self._holidays: HolidayCalendar = holidays
+        self._no_colon: bool = no_colon
+
+    def content(self) -> str:
+        return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Work Hours</title>
+<style>
+body {{ font-family: monospace; margin: 20px; background: #fafafa; }}
+table {{ border-collapse: collapse; width: 100%; }}
+td {{ padding: 2px 4px; vertical-align: middle; }}
+td.date {{ white-space: nowrap; }}
+td.time {{ white-space: nowrap; text-align: right; }}
+td.dur {{ white-space: nowrap; text-align: right; }}
+td.afk {{ white-space: nowrap; text-align: right; color: #888; }}
+td.timeline-cell {{ width: 100%; }}
+.holiday {{ color: #e57373; }}
+.timeline {{ position: relative; height: 18px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; }}
+.event {{ position: absolute; height: 100%; background: #a5d6a7; cursor: pointer; min-width: 2px; border-radius: 3px; }}
+.event:hover {{ background: #81c784; }}
+.tooltip {{ display: none; position: absolute; background: #fffde7; border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px; white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15); border-radius: 4px; }}
+.tooltip-row {{ margin: 2px 0; }}
+.tooltip-label {{ font-weight: bold; display: inline-block; width: 60px; }}
+.hour-marks {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }}
+.hour-mark {{ position: absolute; top: 0; bottom: 0; border-left: 1px solid #e0e0e0; }}
+.hour-labels td {{ font-size: 11px; color: #888; padding: 0 4px 4px 4px; }}
+.hour-labels td div {{ display: flex; }}
+.hour-labels td div span {{ flex: 1; text-align: left; }}
+</style>
+</head>
+<body>
+<h2>Work Hours - Active Time Visualization</h2>
+<table>
+{self._body()}
+</table>
+<script>
+document.querySelectorAll('.event').forEach(el => {{
+    const tooltip = el.querySelector('.tooltip');
+    el.addEventListener('mouseenter', e => {{
+        tooltip.style.display = 'block';
+        tooltip.style.top = '22px';
+        tooltip.style.left = '0px';
+        tooltip.style.right = 'auto';
+        const rect = tooltip.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {{
+            tooltip.style.left = 'auto';
+            tooltip.style.right = '0px';
+        }}
+    }});
+    el.addEventListener('mouseleave', () => {{
+        tooltip.style.display = 'none';
+    }});
+}});
+</script>
+</body>
+</html>
+"""
+
+    def _body(self) -> str:
+        events_by_day: dict[date, list[tuple[datetime, datetime, dict]]] = {}
+        for event in self._events:
+            start: datetime = datetime.fromisoformat(
+                event["timestamp"]
+            ).astimezone(_TIMEZONE)
+            end: datetime = start + timedelta(seconds=event["duration"])
+            self._add_event_to_days(events_by_day, start, end, event)
+
+        today: date = datetime.now(_TIMEZONE).date()
+        start_date, end_date = self._period.dates
+        if start_date and end_date:
+            start: date = start_date
+            end: date = min(end_date, today + timedelta(days=1))
+        elif events_by_day:
+            start = min(events_by_day.keys())
+            end = max(events_by_day.keys()) + timedelta(days=1)
+        else:
+            return ""
+
+        lines: list[str] = [self._hour_labels()]
+        current: date = start
+        while current < end:
+            lines.append(self._day_row(current, events_by_day.get(current, [])))
+            current += timedelta(days=1)
+        return "\n".join(lines)
+
+    def _add_event_to_days(
+        self,
+        events_by_day: dict[date, list[tuple[datetime, datetime, dict]]],
+        start: datetime,
+        end: datetime,
+        event: dict,
+    ) -> None:
+        current_date: date = start.date()
+        while current_date <= end.date():
+            day_start: datetime = max(start, datetime.combine(current_date, datetime.min.time()).replace(tzinfo=_TIMEZONE))
+            day_end_limit: datetime = datetime.combine(current_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=_TIMEZONE)
+            day_end: datetime = min(end, day_end_limit)
+            if day_end > day_start:
+                if current_date not in events_by_day:
+                    events_by_day[current_date] = []
+                events_by_day[current_date].append((day_start, day_end, event))
+            current_date += timedelta(days=1)
+
+    def _day_row(self, d: date, events: list[tuple[datetime, datetime, dict]]) -> str:
+        weekday: str = _WEEKDAYS[d.weekday()]
+        has_work: bool = d in self._daily
+        is_holiday: bool = has_work and self._holidays.is_holiday(d)
+        holiday_class: str = ' class="holiday"' if is_holiday else ""
+        holiday_mark: str = "*" if is_holiday else ""
+        date_col: str = f'{d.strftime("%Y-%m-%d")} {weekday}{holiday_mark}'
+        event_bars: str = "".join(self._event_bar(start, end, event, d) for start, end, event in events)
+        hour_marks: str = self._hour_marks()
+
+        if not has_work:
+            return f'<tr{holiday_class}><td class="date">{date_col}</td><td class="time"></td><td class="dur"></td><td class="afk"></td><td class="timeline-cell"><div class="timeline">{hour_marks}</div></td></tr>'
+
+        s, e = self._daily[d]
+        span: float = (e - s).total_seconds() / 3600
+        time_col: str = f"{self._format_time(s, d)} - {self._format_time(e, d)}"
+        dur_col: str = f"({span:.1f}h)"
+
+        active: float = self._active.get(d, 0) / 3600
+        afk: float = span - active
+        if afk < 0.05:
+            afk_col: str = ""
+        else:
+            max_gap: float = self._max_gap.get(d, 0) / 3600
+            afk_col = f"-{afk:.1f}h (max:-{max_gap:.1f}h)"
+
+        return f'<tr{holiday_class}><td class="date">{date_col}</td><td class="time">{time_col}</td><td class="dur">{dur_col}</td><td class="afk">{afk_col}</td><td class="timeline-cell"><div class="timeline">{hour_marks}{event_bars}</div></td></tr>'
+
+    def _format_time(self, dt: datetime, base: date) -> str:
+        hour: int = dt.hour + ((dt.date() - base).days * 24)
+        sep: str = "" if self._no_colon else ":"
+        return f"{hour:02d}{sep}{dt.minute:02d}"
+
+    def _event_bar(self, start: datetime, end: datetime, event: dict, base_date: date) -> str:
+        left: float = self._time_to_percent(start, base_date)
+        width: float = self._time_to_percent(end, base_date) - left
+        width = max(width, 0.1)
+        dur_sec: int = int((end - start).total_seconds())
+        dur_str: str = f"{dur_sec // 60}m {dur_sec % 60}s" if dur_sec >= 60 else f"{dur_sec}s"
+        return f'''<div class="event" style="left:{left:.2f}%;width:{width:.2f}%;">
+<div class="tooltip">
+<div class="tooltip-row"><span class="tooltip-label">Start</span>{start.strftime("%H:%M:%S")}</div>
+<div class="tooltip-row"><span class="tooltip-label">Stop</span>{end.strftime("%H:%M:%S")}</div>
+<div class="tooltip-row"><span class="tooltip-label">Duration</span>{dur_str}</div>
+<div class="tooltip-row"><span class="tooltip-label">Data</span>{json.dumps(event["data"])}</div>
+</div></div>'''
+
+    def _time_to_percent(self, dt: datetime, base_date: date) -> float:
+        base_start: datetime = datetime.combine(
+            base_date, datetime.min.time()
+        ).replace(tzinfo=_TIMEZONE)
+        seconds: float = (dt - base_start).total_seconds()
+        total_seconds: float = 24 * 60 * 60
+        return max(0, min(100, (seconds / total_seconds) * 100))
+
+    def _hour_marks(self) -> str:
+        marks: list[str] = []
+        for h in range(4, 24, 4):
+            pct: float = (h / 24) * 100
+            marks.append(f'<div class="hour-mark" style="left:{pct:.1f}%"></div>')
+        return f'<div class="hour-marks">{"".join(marks)}</div>'
+
+    def _hour_labels(self) -> str:
+        labels: list[str] = [f"<span>{h:02d}:00</span>" for h in range(0, 24, 4)]
+        return f'<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>{"".join(labels)}</div></td></tr>'
+
+    def _work_date(self, dt: datetime) -> date:
+        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
+
+
 class CLI:
     """コマンドラインインターフェース"""
 
@@ -430,7 +626,7 @@ class CLI:
         )
         self._status(f"勤務日数: {calendar.days}", args.quiet)
 
-        self._output(calendar, daily_work, period, args)
+        self._output(calendar, daily_work, period, events, args)
 
     def _args(self) -> argparse.Namespace:
         p: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -453,6 +649,7 @@ class CLI:
         p.add_argument(
             "--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）"
         )
+        p.add_argument("--html", nargs="?", const="work.html", help="HTML形式で出力（ファイル名省略時: work.html）")
         return p.parse_args()
 
     def _status(self, msg: str, quiet: bool) -> None:
@@ -464,9 +661,19 @@ class CLI:
         calendar: WorkCalendar,
         daily_work: DailyWork,
         period: MonthPeriod,
+        events: AFKEvents,
         args: argparse.Namespace,
     ) -> None:
-        if args.output:
+        holidays: HolidayCalendar = HolidayCalendar()
+        if args.html:
+            html: WorkHTML = WorkHTML(
+                events._events, calendar.daily, daily_work.active, daily_work.gaps,
+                period, holidays, args.no_colon
+            )
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(html.content())
+            self._status(f"HTML出力完了: {args.html}", args.quiet)
+        elif args.output:
             csv: WorkCSV = WorkCSV(
                 calendar.daily, daily_work.active, daily_work.gaps, period
             )
@@ -474,7 +681,6 @@ class CLI:
                 f.write(csv.content())
             self._status(f"出力完了: {args.output}", args.quiet)
         else:
-            holidays: HolidayCalendar = HolidayCalendar()
             text: WorkText = WorkText(
                 calendar.daily, daily_work.active, daily_work.gaps, period, holidays, args.no_colon
             )
