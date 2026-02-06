@@ -111,7 +111,8 @@ class AFKEvents:
     @property
     def work_blocks(self) -> list[tuple[datetime, datetime]]:
         not_afk: list[dict] = sorted(
-            [e for e in self._events if e["data"]["status"] == "not-afk"],
+            [e for e in self._events
+             if e["data"]["status"] == "not-afk" and e["duration"] >= 5],
             key=lambda e: e["timestamp"],
         )
         return self._extract_blocks(not_afk) if not_afk else []
