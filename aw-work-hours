@@ -15,10 +15,14 @@ Usage:
 """
 
 import argparse
+import http.server
 import json
 import os
+import socket
 import ssl
+import subprocess
 import sys
+import threading
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -410,37 +414,27 @@ class WorkText:
 
 
 class WorkHTML:
-    """HTML出力"""
+    """HTML出力（JavaScript駆動）"""
 
-    def __init__(
-        self,
-        events: list[dict],
-        daily: dict[date, tuple[datetime, datetime]],
-        active: dict[date, float],
-        max_gap: dict[date, float],
-        period: MonthPeriod,
-        holidays: HolidayCalendar,
-        no_colon: bool = False,
-    ) -> None:
-        self._events: list[dict] = [
-            e for e in events
-            if e["data"]["status"] == "not-afk" and e["duration"] >= 5
-        ]
-        self._daily: dict[date, tuple[datetime, datetime]] = daily
-        self._active: dict[date, float] = active
-        self._max_gap: dict[date, float] = max_gap
-        self._period: MonthPeriod = period
-        self._holidays: HolidayCalendar = holidays
+    def __init__(self, no_colon: bool = False, init_month: str | None = None) -> None:
         self._no_colon: bool = no_colon
+        self._init_month: str | None = init_month
 
     def content(self) -> str:
-        return f"""<!DOCTYPE html>
+        no_colon_js: str = "true" if self._no_colon else "false"
+        init_month_js: str = f"'{self._init_month}'" if self._init_month else "null"
+        return f'''<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <title>Work Hours</title>
 <style>
 body {{ font-family: monospace; margin: 20px; background: #fafafa; }}
+.controls {{ margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }}
+.controls button {{ padding: 5px 15px; cursor: pointer; }}
+.controls input[type="month"] {{ padding: 5px; width: 100px; font-family: monospace; }}
+.controls input[type="checkbox"] {{ width: auto; }}
+.status {{ color: #888; margin-left: 10px; }}
 table {{ border-collapse: collapse; width: 100%; }}
 td {{ padding: 2px 4px; vertical-align: middle; }}
 td.date {{ white-space: nowrap; }}
@@ -464,145 +458,135 @@ td.timeline-cell {{ width: 100%; }}
 </head>
 <body>
 <h2>Work Hours - Active Time Visualization</h2>
-<table>
-{self._body()}
-</table>
+<div class="controls">
+<button id="prev">&lt; 前月</button>
+<input type="month" id="month">
+<button id="next">次月 &gt;</button>
+<label style="margin-left: 15px; cursor: pointer;"><input type="checkbox" id="noColon" style="margin-right: 4px;">コロンなし</label>
+<span class="status" id="status"></span>
+</div>
+<table id="table"></table>
 <script>
-document.querySelectorAll('.event').forEach(el => {{
-    const tooltip = el.querySelector('.tooltip');
-    el.addEventListener('mouseenter', e => {{
-        tooltip.style.display = 'block';
-        tooltip.style.top = '22px';
-        tooltip.style.left = '0px';
-        tooltip.style.right = 'auto';
-        const rect = tooltip.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {{
-            tooltip.style.left = 'auto';
-            tooltip.style.right = '0px';
+const INIT_NO_COLON = {no_colon_js};
+const INIT_MONTH = {init_month_js};
+let noColon = INIT_NO_COLON;
+
+function formatTime(h, m) {{
+    const sep = noColon ? '' : ':';
+    return String(h).padStart(2, '0') + sep + String(m).padStart(2, '0');
+}}
+
+async function loadMonth(ym) {{
+    const status = document.getElementById('status');
+    status.textContent = '読み込み中...';
+
+    let data;
+    try {{
+        const res = await fetch(`/data/${{ym}}`);
+        data = await res.json();
+    }} catch (e) {{
+        status.textContent = 'エラー: データを取得できません';
+        return;
+    }}
+
+    status.textContent = `勤務: ${{data.rows.filter(r => r.hasWork).length}}日`;
+    render(data.rows);
+}}
+
+function formatDuration(sec) {{
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m >= 1 ? `${{m}}m ${{s}}s` : `${{s}}s`;
+}}
+
+function render(rows) {{
+    const table = document.getElementById('table');
+    let html = '<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>';
+    for (let h = 0; h < 24; h += 4) html += `<span>${{String(h).padStart(2,'0')}}:00</span>`;
+    html += '</div></td></tr>';
+
+    for (const row of rows) {{
+        const holClass = row.holiday ? ' class="holiday"' : '';
+        const holMark = row.holiday ? '*' : '';
+        const dateCol = `${{row.date}} ${{row.weekday}}${{holMark}}`;
+
+        let timeCol = '', durCol = '', afkCol = '';
+        if (row.hasWork) {{
+            timeCol = `${{formatTime(row.startH, row.startM)}} - ${{formatTime(row.endH, row.endM)}}`;
+            durCol = `(${{row.span.toFixed(1)}}h)`;
+            if (row.afk !== undefined) {{
+                afkCol = `-${{row.afk.toFixed(1)}}h (max:-${{row.maxGap.toFixed(1)}}h)`;
+            }}
         }}
+
+        const hourMarks = [4,8,12,16,20].map(h => `<div class="hour-mark" style="left:${{(h/24)*100}}%"></div>`).join('');
+
+        let eventBars = '';
+        for (const ev of row.events || []) {{
+            const startSec = ev.startH * 3600 + ev.startM * 60 + ev.startS;
+            const endSec = ev.endH * 3600 + ev.endM * 60 + ev.endS;
+            const left = (startSec / 86400) * 100;
+            const width = Math.max(0.1, ((endSec - startSec) / 86400) * 100);
+            const startTime = `${{String(ev.startH).padStart(2,'0')}}:${{String(ev.startM).padStart(2,'0')}}:${{String(ev.startS).padStart(2,'0')}}`;
+            const endTime = `${{String(ev.endH).padStart(2,'0')}}:${{String(ev.endM).padStart(2,'0')}}:${{String(ev.endS).padStart(2,'0')}}`;
+            eventBars += `<div class="event" style="left:${{left.toFixed(2)}}%;width:${{width.toFixed(2)}}%;">
+<div class="tooltip">
+<div class="tooltip-row"><span class="tooltip-label">Start</span>${{startTime}}</div>
+<div class="tooltip-row"><span class="tooltip-label">Stop</span>${{endTime}}</div>
+<div class="tooltip-row"><span class="tooltip-label">Duration</span>${{formatDuration(ev.duration)}}</div>
+<div class="tooltip-row"><span class="tooltip-label">Data</span>${{JSON.stringify(ev.data)}}</div>
+</div></div>`;
+        }}
+
+        html += `<tr${{holClass}}><td class="date">${{dateCol}}</td><td class="time">${{timeCol}}</td><td class="dur">${{durCol}}</td><td class="afk">${{afkCol}}</td><td class="timeline-cell"><div class="timeline"><div class="hour-marks">${{hourMarks}}</div>${{eventBars}}</div></td></tr>`;
+    }}
+
+    table.innerHTML = html;
+
+    // Add tooltip handlers
+    document.querySelectorAll('.event').forEach(el => {{
+        const tooltip = el.querySelector('.tooltip');
+        el.addEventListener('mouseenter', () => {{
+            tooltip.style.display = 'block';
+            tooltip.style.top = '22px';
+            tooltip.style.left = '0px';
+            tooltip.style.right = 'auto';
+            const rect = tooltip.getBoundingClientRect();
+            if (rect.right > window.innerWidth) {{
+                tooltip.style.left = 'auto';
+                tooltip.style.right = '0px';
+            }}
+        }});
+        el.addEventListener('mouseleave', () => tooltip.style.display = 'none');
     }});
-    el.addEventListener('mouseleave', () => {{
-        tooltip.style.display = 'none';
-    }});
+}}
+
+function changeMonth(delta) {{
+    const input = document.getElementById('month');
+    const [y, m] = input.value.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    input.value = `${{d.getFullYear()}}-${{String(d.getMonth() + 1).padStart(2, '0')}}`;
+    loadMonth(input.value);
+}}
+
+document.getElementById('prev').addEventListener('click', () => changeMonth(-1));
+document.getElementById('next').addEventListener('click', () => changeMonth(1));
+document.getElementById('month').addEventListener('change', e => loadMonth(e.target.value));
+document.getElementById('noColon').addEventListener('change', e => {{
+    noColon = e.target.checked;
+    loadMonth(document.getElementById('month').value);
 }});
+
+// Initialize
+const now = new Date();
+const initMonth = INIT_MONTH || `${{now.getFullYear()}}-${{String(now.getMonth() + 1).padStart(2, '0')}}`;
+document.getElementById('month').value = initMonth;
+document.getElementById('noColon').checked = INIT_NO_COLON;
+loadMonth(initMonth);
 </script>
 </body>
 </html>
-"""
-
-    def _body(self) -> str:
-        events_by_day: dict[date, list[tuple[datetime, datetime, dict]]] = {}
-        for event in self._events:
-            start: datetime = datetime.fromisoformat(
-                event["timestamp"]
-            ).astimezone(_TIMEZONE)
-            end: datetime = start + timedelta(seconds=event["duration"])
-            self._add_event_to_days(events_by_day, start, end, event)
-
-        today: date = datetime.now(_TIMEZONE).date()
-        start_date, end_date = self._period.dates
-        if start_date and end_date:
-            start: date = start_date
-            end: date = min(end_date, today + timedelta(days=1))
-        elif events_by_day:
-            start = min(events_by_day.keys())
-            end = max(events_by_day.keys()) + timedelta(days=1)
-        else:
-            return ""
-
-        lines: list[str] = [self._hour_labels()]
-        current: date = start
-        while current < end:
-            lines.append(self._day_row(current, events_by_day.get(current, [])))
-            current += timedelta(days=1)
-        return "\n".join(lines)
-
-    def _add_event_to_days(
-        self,
-        events_by_day: dict[date, list[tuple[datetime, datetime, dict]]],
-        start: datetime,
-        end: datetime,
-        event: dict,
-    ) -> None:
-        current_date: date = start.date()
-        while current_date <= end.date():
-            day_start: datetime = max(start, datetime.combine(current_date, datetime.min.time()).replace(tzinfo=_TIMEZONE))
-            day_end_limit: datetime = datetime.combine(current_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=_TIMEZONE)
-            day_end: datetime = min(end, day_end_limit)
-            if day_end > day_start:
-                if current_date not in events_by_day:
-                    events_by_day[current_date] = []
-                events_by_day[current_date].append((day_start, day_end, event))
-            current_date += timedelta(days=1)
-
-    def _day_row(self, d: date, events: list[tuple[datetime, datetime, dict]]) -> str:
-        weekday: str = _WEEKDAYS[d.weekday()]
-        has_work: bool = d in self._daily
-        is_holiday: bool = has_work and self._holidays.is_holiday(d)
-        holiday_class: str = ' class="holiday"' if is_holiday else ""
-        holiday_mark: str = "*" if is_holiday else ""
-        date_col: str = f'{d.strftime("%Y-%m-%d")} {weekday}{holiday_mark}'
-        event_bars: str = "".join(self._event_bar(start, end, event, d) for start, end, event in events)
-        hour_marks: str = self._hour_marks()
-
-        if not has_work:
-            return f'<tr{holiday_class}><td class="date">{date_col}</td><td class="time"></td><td class="dur"></td><td class="afk"></td><td class="timeline-cell"><div class="timeline">{hour_marks}</div></td></tr>'
-
-        s, e = self._daily[d]
-        span: float = (e - s).total_seconds() / 3600
-        time_col: str = f"{self._format_time(s, d)} - {self._format_time(e, d)}"
-        dur_col: str = f"({span:.1f}h)"
-
-        active: float = self._active.get(d, 0) / 3600
-        afk: float = span - active
-        if afk < 0.05:
-            afk_col: str = ""
-        else:
-            max_gap: float = self._max_gap.get(d, 0) / 3600
-            afk_col = f"-{afk:.1f}h (max:-{max_gap:.1f}h)"
-
-        return f'<tr{holiday_class}><td class="date">{date_col}</td><td class="time">{time_col}</td><td class="dur">{dur_col}</td><td class="afk">{afk_col}</td><td class="timeline-cell"><div class="timeline">{hour_marks}{event_bars}</div></td></tr>'
-
-    def _format_time(self, dt: datetime, base: date) -> str:
-        hour: int = dt.hour + ((dt.date() - base).days * 24)
-        sep: str = "" if self._no_colon else ":"
-        return f"{hour:02d}{sep}{dt.minute:02d}"
-
-    def _event_bar(self, start: datetime, end: datetime, event: dict, base_date: date) -> str:
-        left: float = self._time_to_percent(start, base_date)
-        width: float = self._time_to_percent(end, base_date) - left
-        width = max(width, 0.1)
-        dur_sec: int = int((end - start).total_seconds())
-        dur_str: str = f"{dur_sec // 60}m {dur_sec % 60}s" if dur_sec >= 60 else f"{dur_sec}s"
-        return f'''<div class="event" style="left:{left:.2f}%;width:{width:.2f}%;">
-<div class="tooltip">
-<div class="tooltip-row"><span class="tooltip-label">Start</span>{start.strftime("%H:%M:%S")}</div>
-<div class="tooltip-row"><span class="tooltip-label">Stop</span>{end.strftime("%H:%M:%S")}</div>
-<div class="tooltip-row"><span class="tooltip-label">Duration</span>{dur_str}</div>
-<div class="tooltip-row"><span class="tooltip-label">Data</span>{json.dumps(event["data"])}</div>
-</div></div>'''
-
-    def _time_to_percent(self, dt: datetime, base_date: date) -> float:
-        base_start: datetime = datetime.combine(
-            base_date, datetime.min.time()
-        ).replace(tzinfo=_TIMEZONE)
-        seconds: float = (dt - base_start).total_seconds()
-        total_seconds: float = 24 * 60 * 60
-        return max(0, min(100, (seconds / total_seconds) * 100))
-
-    def _hour_marks(self) -> str:
-        marks: list[str] = []
-        for h in range(4, 24, 4):
-            pct: float = (h / 24) * 100
-            marks.append(f'<div class="hour-mark" style="left:{pct:.1f}%"></div>')
-        return f'<div class="hour-marks">{"".join(marks)}</div>'
-
-    def _hour_labels(self) -> str:
-        labels: list[str] = [f"<span>{h:02d}:00</span>" for h in range(0, 24, 4)]
-        return f'<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>{"".join(labels)}</div></td></tr>'
-
-    def _work_date(self, dt: datetime) -> date:
-        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
+'''
 
 
 class CLI:
@@ -610,6 +594,19 @@ class CLI:
 
     def run(self) -> None:
         args: argparse.Namespace = self._args()
+
+        if args.html:
+            init_month: str | None = None
+            if args.month not in ("this", "all"):
+                if args.month == "last":
+                    now = datetime.now(_TIMEZONE)
+                    y, m = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+                    init_month = f"{y}-{m:02d}"
+                else:
+                    init_month = args.month
+            self._serve_html(args.no_colon, init_month, args.quiet)
+            return
+
         period: MonthPeriod = MonthPeriod.parse(args.month)
         labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
 
@@ -649,12 +646,179 @@ class CLI:
         p.add_argument(
             "--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）"
         )
-        p.add_argument("--html", nargs="?", const="work.html", help="HTML形式で出力（ファイル名省略時: work.html）")
+        p.add_argument("--html", action="store_true", help="HTML形式でブラウザ表示")
         return p.parse_args()
 
     def _status(self, msg: str, quiet: bool) -> None:
         if not quiet:
             print(msg, file=sys.stderr)
+
+    def _serve_html(self, no_colon: bool, init_month: str | None, quiet: bool) -> None:
+        import tempfile
+        port: int = 8600
+        html_dir: str = tempfile.gettempdir()
+        html_path: Path = Path(html_dir) / "aw-work-hours.html"
+
+        html: WorkHTML = WorkHTML(no_colon, init_month)
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html.content())
+        self._status(f"HTML出力: {html_path}", quiet)
+
+        if not self._is_port_in_use(port):
+            self._start_server(html_dir, port, quiet)
+        else:
+            self._status(f"サーバーは既に起動中 (port {port})", quiet)
+
+        url: str = f"http://localhost:{port}/aw-work-hours.html"
+        self._status(f"ブラウザで開きます: {url}", quiet)
+        subprocess.run(["open", url], check=False)
+
+        self._status("Ctrl+C で終了", quiet)
+        try:
+            while True:
+                import time
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self._status("\n終了します", quiet)
+
+    def _is_port_in_use(self, port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("localhost", port)) == 0
+
+    def _start_server(self, directory: str, port: int, quiet: bool) -> None:
+        class ProxyHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=directory, **kwargs)
+
+            def log_message(self, format, *args):
+                pass  # suppress logs
+
+            def do_GET(self):
+                if self.path.startswith("/data/"):
+                    self._compute_data()
+                elif self.path.startswith("/api/"):
+                    self._proxy_api()
+                else:
+                    super().do_GET()
+
+            def _compute_data(self):
+                try:
+                    month_str = self.path.split("/")[-1]
+                    data = self._get_month_data(month_str)
+                    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", len(body))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception as e:
+                    self.send_error(500, f"Error: {e}")
+
+            def _get_month_data(self, month_str: str) -> dict:
+                period = MonthPeriod.parse(month_str)
+                start_iso, end_iso = period.iso
+                events = AFKEvents.fetch(start_iso, end_iso)
+                daily_work = DailyWork(events._events)
+                calendar = WorkCalendar.from_blocks(
+                    events.work_blocks, daily_work.active, daily_work.gaps
+                )
+                holidays = HolidayCalendar()
+
+                # イベントを日ごとに分類（24時超えは分割）
+                events_by_day: dict[date, list] = {}
+                not_afk = [e for e in events._events if e["data"]["status"] == "not-afk" and e["duration"] >= 5]
+                for ev in not_afk:
+                    ev_start = datetime.fromisoformat(ev["timestamp"]).astimezone(_TIMEZONE)
+                    ev_end = ev_start + timedelta(seconds=ev["duration"])
+                    self._add_event_to_days(events_by_day, ev_start, ev_end, ev)
+
+                rows = []
+                today = datetime.now(_TIMEZONE).date()
+                start_date, end_date = period.dates
+                if start_date and end_date:
+                    current = start_date
+                    end = min(end_date, today + timedelta(days=1))
+                else:
+                    return {"rows": []}
+
+                while current < end:
+                    row = self._make_row(current, calendar.daily, daily_work.active, daily_work.gaps, holidays, events_by_day.get(current, []))
+                    rows.append(row)
+                    current += timedelta(days=1)
+
+                return {"rows": rows}
+
+            def _add_event_to_days(self, events_by_day: dict, start: datetime, end: datetime, event: dict) -> None:
+                current_date = start.date()
+                while current_date <= end.date():
+                    day_start = max(start, datetime.combine(current_date, datetime.min.time()).replace(tzinfo=_TIMEZONE))
+                    day_end_limit = datetime.combine(current_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=_TIMEZONE)
+                    day_end = min(end, day_end_limit)
+                    if day_end > day_start:
+                        if current_date not in events_by_day:
+                            events_by_day[current_date] = []
+                        events_by_day[current_date].append({
+                            "startH": day_start.hour,
+                            "startM": day_start.minute,
+                            "startS": day_start.second,
+                            "endH": day_end.hour if day_end.date() == current_date else 24,
+                            "endM": day_end.minute if day_end.date() == current_date else 0,
+                            "endS": day_end.second if day_end.date() == current_date else 0,
+                            "duration": (day_end - day_start).total_seconds(),
+                            "data": event["data"],
+                        })
+                    current_date += timedelta(days=1)
+
+            def _make_row(self, d: date, daily: dict, active: dict, max_gap: dict, holidays: HolidayCalendar, events: list) -> dict:
+                weekday = _WEEKDAYS[d.weekday()]
+                has_work = d in daily
+                is_holiday = has_work and holidays.is_holiday(d)
+
+                row = {
+                    "date": d.isoformat(),
+                    "weekday": weekday,
+                    "holiday": is_holiday,
+                    "hasWork": has_work,
+                }
+
+                if has_work:
+                    s, e = daily[d]
+                    span = (e - s).total_seconds() / 3600
+                    sh = s.hour + ((s.date() - d).days * 24)
+                    eh = e.hour + ((e.date() - d).days * 24)
+                    row["startH"], row["startM"] = sh, s.minute
+                    row["endH"], row["endM"] = eh, e.minute
+                    row["span"] = round(span, 1)
+
+                    active_h = active.get(d, 0) / 3600
+                    afk = span - active_h
+                    if afk >= 0.05:
+                        row["afk"] = round(afk, 1)
+                        row["maxGap"] = round(max_gap.get(d, 0) / 3600, 1)
+
+                row["events"] = events
+                return row
+
+            def _proxy_api(self):
+                api_url = f"http://127.0.0.1:5600{self.path}"
+                try:
+                    with urllib.request.urlopen(api_url, timeout=30) as resp:
+                        data = resp.read()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", len(data))
+                        self.end_headers()
+                        self.wfile.write(data)
+                except Exception as e:
+                    self.send_error(502, f"API Error: {e}")
+
+        def serve() -> None:
+            with http.server.HTTPServer(("", port), ProxyHandler) as httpd:
+                httpd.serve_forever()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        self._status(f"サーバー起動: http://localhost:{port}/", quiet)
 
     def _output(
         self,
@@ -665,15 +829,7 @@ class CLI:
         args: argparse.Namespace,
     ) -> None:
         holidays: HolidayCalendar = HolidayCalendar()
-        if args.html:
-            html: WorkHTML = WorkHTML(
-                events._events, calendar.daily, daily_work.active, daily_work.gaps,
-                period, holidays, args.no_colon
-            )
-            with open(args.html, "w", encoding="utf-8") as f:
-                f.write(html.content())
-            self._status(f"HTML出力完了: {args.html}", args.quiet)
-        elif args.output:
+        if args.output:
             csv: WorkCSV = WorkCSV(
                 calendar.daily, daily_work.active, daily_work.gaps, period
             )
