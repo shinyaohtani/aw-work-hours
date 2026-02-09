@@ -186,12 +186,17 @@ class MonthPeriod:
             self._end.isoformat() if self._end else None,
         )
 
-    @property
-    def dates(self) -> tuple[date | None, date | None]:
-        return (
-            self._start.date() if self._start else None,
-            self._end.date() if self._end else None,
-        )
+    def date_range(self) -> list[date]:
+        if not (self._start and self._end):
+            return []
+        today: date = datetime.now(_TIMEZONE).date()
+        result: list[date] = []
+        current: date = self._start.date()
+        end: date = min(self._end.date(), today + timedelta(days=1))
+        while current < end:
+            result.append(current)
+            current += timedelta(days=1)
+        return result
 
 
 class AFKEvents:
@@ -217,10 +222,6 @@ class AFKEvents:
             print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
             print(f"詳細: {e}", file=sys.stderr)
             sys.exit(1)
-
-    @property
-    def count(self) -> int:
-        return len(self._events)
 
     @property
     def raw(self) -> list[dict]:
@@ -276,7 +277,7 @@ class DailyWork:
             start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
                 _TIMEZONE
             )
-            wd: date = self._work_date(start)
+            wd: date = WorkCalendar.work_date(start)
             result[wd] = result.get(wd, 0) + event["duration"]
         return result
 
@@ -290,7 +291,7 @@ class DailyWork:
                 _TIMEZONE
             )
             end: datetime = start + timedelta(seconds=event["duration"])
-            wd: date = self._work_date(start)
+            wd: date = WorkCalendar.work_date(start)
             if wd not in events_by_day:
                 events_by_day[wd] = []
             events_by_day[wd].append((start, end))
@@ -311,9 +312,6 @@ class DailyWork:
                 max_end = max(max_end, sorted_events[i][1])
             result[wd] = max_gap
         return result
-
-    def _work_date(self, dt: datetime) -> date:
-        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
 
 
 class HolidayCalendar:
@@ -371,7 +369,7 @@ class WorkCalendar:
     def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
         daily: dict[date, tuple[datetime, datetime]] = {}
         for block_start, block_end in blocks:
-            wd: date = cls._work_date(block_start)
+            wd: date = cls.work_date(block_start)
             if wd not in daily:
                 daily[wd] = (block_start, block_end)
             else:
@@ -379,8 +377,8 @@ class WorkCalendar:
                 daily[wd] = (min(block_start, s), max(block_end, e))
         return cls(daily)
 
-    @classmethod
-    def _work_date(cls, dt: datetime) -> date:
+    @staticmethod
+    def work_date(dt: datetime) -> date:
         return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
 
     @property
@@ -416,17 +414,8 @@ class WorkCSV:
         return "\n".join(lines) + "\n"
 
     def _date_range(self) -> list[date]:
-        today: date = datetime.now(_TIMEZONE).date()
-        start_date, end_date = self._period.dates
-        if start_date and end_date:
-            result: list[date] = []
-            current: date = start_date
-            end: date = min(end_date, today + timedelta(days=1))
-            while current < end:
-                result.append(current)
-                current += timedelta(days=1)
-            return result
-        return sorted(self._daily.keys())
+        dates: list[date] = self._period.date_range()
+        return dates if dates else sorted(self._daily.keys())
 
     def _row(self, d: date) -> str:
         prefix: str = f'="{d.strftime("%Y-%m-%d")}",{_WEEKDAYS[d.weekday()]}'
@@ -464,20 +453,15 @@ class WorkText:
         self._no_colon: bool = no_colon
 
     def content(self) -> str:
-        today: date = datetime.now(_TIMEZONE).date()
-        start_date, end_date = self._period.dates
-        if start_date and end_date:
-            start, end = start_date, min(end_date, today + timedelta(days=1))
-        elif self._daily:
-            start = min(self._daily.keys())
-            end = max(self._daily.keys()) + timedelta(days=1)
-        else:
-            return ""
-        lines: list[str] = []
-        current: date = start
-        while current < end:
-            lines.append(self._day(current))
-            current += timedelta(days=1)
+        dates: list[date] = self._period.date_range()
+        if not dates and self._daily:
+            start: date = min(self._daily.keys())
+            end: date = max(self._daily.keys()) + timedelta(days=1)
+            current: date = start
+            while current < end:
+                dates.append(current)
+                current += timedelta(days=1)
+        lines: list[str] = [self._day(d) for d in dates]
         return "\n".join(lines) + "\n" if lines else ""
 
     def _day(self, d: date) -> str:
@@ -806,17 +790,10 @@ class WorkHTMLResponse:
     def _create_rows(
         self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar
     ) -> list[WorkHTMLRow]:
-        rows: list[WorkHTMLRow] = []
-        today: date = datetime.now(_TIMEZONE).date()
-        start_date, end_date = self._period.dates
-        if not (start_date and end_date):
-            return []
-        current: date = start_date
-        end: date = min(end_date, today + timedelta(days=1))
-        while current < end:
-            rows.append(WorkHTMLRow(current, calendar, daily_work, holidays))
-            current += timedelta(days=1)
-        return rows
+        return [
+            WorkHTMLRow(d, calendar, daily_work, holidays)
+            for d in self._period.date_range()
+        ]
 
     def _populate_events(self, rows: list[WorkHTMLRow], events: AFKEvents) -> None:
         not_afk: list[dict] = [
@@ -1068,11 +1045,10 @@ class CLIMain:
     def _resolve_init_month(self) -> str | None:
         if self._args.month in ("this", "all"):
             return None
-        if self._args.month == "last":
-            now: datetime = datetime.now(_TIMEZONE)
-            y, m = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
-            return f"{y}-{m:02d}"
-        return self._args.month
+        dates: list[date] = MonthPeriod.parse(self._args.month).date_range()
+        if dates:
+            return f"{dates[0].year}-{dates[0].month:02d}"
+        return None
 
     def _run_text(self) -> None:
         period: MonthPeriod = MonthPeriod.parse(self._args.month)
@@ -1080,7 +1056,7 @@ class CLIMain:
         self._status(f"対象期間: {labels.get(self._args.month, self._args.month)}")
         self._status("ActivityWatchからデータを取得中...")
         events: AFKEvents = AFKEvents.fetch(*period.iso)
-        self._status(f"取得イベント数: {events.count}")
+        self._status(f"取得イベント数: {len(events.raw)}")
         daily_work: DailyWork = DailyWork(events.raw)
         calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
         self._status(f"勤務日数: {calendar.days}")
