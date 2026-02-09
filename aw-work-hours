@@ -56,15 +56,22 @@ class AFKBucketCandidates:
         return self._by_latest()
 
     def _by_preference(self) -> str:
-        matched: list[str] = [b for b in self._afk_ids if self._preference.lower() in b.lower()]
+        pref: str = self._preference or ""
+        matched: list[str] = [b for b in self._afk_ids if pref.lower() in b.lower()]
         if not matched:
-            print(f"エラー: '{self._preference}' にマッチするバケットが見つかりません", file=sys.stderr)
+            print(
+                f"エラー: '{self._preference}' にマッチするバケットが見つかりません",
+                file=sys.stderr,
+            )
             print("利用可能なバケット:", file=sys.stderr)
             for bid in self._afk_ids:
                 print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
             sys.exit(1)
         if len(matched) > 1:
-            print(f"エラー: '{self._preference}' に複数のバケットがマッチしました:", file=sys.stderr)
+            print(
+                f"エラー: '{self._preference}' に複数のバケットがマッチしました:",
+                file=sys.stderr,
+            )
             for bid in matched:
                 print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
             sys.exit(1)
@@ -75,8 +82,13 @@ class AFKBucketCandidates:
         for bid in self._afk_ids:
             hostname: str = bid.replace("aw-watcher-afk_", "")
             ranked.append((bid, self._last_event(bid), hostname))
-        ranked.sort(key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True)
-        print("複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:", file=sys.stderr)
+        ranked.sort(
+            key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True
+        )
+        print(
+            "複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:",
+            file=sys.stderr,
+        )
         for i, (_, last, hostname) in enumerate(ranked):
             last_str: str = last.strftime("%Y-%m-%d %H:%M") if last else "データなし"
             marker: str = " ← 使用" if i == 0 else ""
@@ -91,7 +103,9 @@ class AFKBucketCandidates:
             with urllib.request.urlopen(url, timeout=5) as resp:
                 events: list = json.loads(resp.read().decode())
                 if events:
-                    return datetime.fromisoformat(events[0]["timestamp"]).astimezone(_TIMEZONE)
+                    return datetime.fromisoformat(events[0]["timestamp"]).astimezone(
+                        _TIMEZONE
+                    )
         except (urllib.error.URLError, KeyError, IndexError):
             pass
         return None
@@ -215,7 +229,11 @@ class AFKEvents:
     @property
     def work_blocks(self) -> list[tuple[datetime, datetime]]:
         not_afk: list[dict] = sorted(
-            [e for e in self._events if e["data"]["status"] == "not-afk" and e["duration"] >= 5],
+            [
+                e
+                for e in self._events
+                if e["data"]["status"] == "not-afk" and e["duration"] >= 5
+            ],
             key=lambda e: e["timestamp"],
         )
         return self._extract_blocks(not_afk) if not_afk else []
@@ -225,7 +243,9 @@ class AFKEvents:
         block_start: datetime | None = None
         block_end: datetime = datetime.min.replace(tzinfo=_TIMEZONE)
         for event in events:
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
+                _TIMEZONE
+            )
             end: datetime = start + timedelta(seconds=event["duration"])
             if block_start is None:
                 block_start, block_end = start, end
@@ -245,13 +265,17 @@ class DailyWork:
     """日ごとの勤務統計"""
 
     def __init__(self, events: list[dict]) -> None:
-        self._not_afk: list[dict] = [e for e in events if e["data"]["status"] == "not-afk"]
+        self._not_afk: list[dict] = [
+            e for e in events if e["data"]["status"] == "not-afk"
+        ]
 
     @property
     def active(self) -> dict[date, float]:
         result: dict[date, float] = {}
         for event in self._not_afk:
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
+                _TIMEZONE
+            )
             wd: date = self._work_date(start)
             result[wd] = result.get(wd, 0) + event["duration"]
         return result
@@ -262,7 +286,9 @@ class DailyWork:
         for event in self._not_afk:
             if event["duration"] < 5:
                 continue
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
+                _TIMEZONE
+            )
             end: datetime = start + timedelta(seconds=event["duration"])
             wd: date = self._work_date(start)
             if wd not in events_by_day:
@@ -270,7 +296,9 @@ class DailyWork:
             events_by_day[wd].append((start, end))
         return self._calc_max_gaps(events_by_day)
 
-    def _calc_max_gaps(self, events_by_day: dict[date, list[tuple[datetime, datetime]]]) -> dict[date, float]:
+    def _calc_max_gaps(
+        self, events_by_day: dict[date, list[tuple[datetime, datetime]]]
+    ) -> dict[date, float]:
         result: dict[date, float] = {}
         for wd, events in events_by_day.items():
             sorted_events: list[tuple[datetime, datetime]] = sorted(events)
@@ -380,7 +408,9 @@ class WorkCSV:
         self._period: MonthPeriod = period
 
     def content(self) -> str:
-        lines: list[str] = ["date,weekday,start_time,end_time,duration_hours,afk_hours,max_gap_hours"]
+        lines: list[str] = [
+            "date,weekday,start_time,end_time,duration_hours,afk_hours,max_gap_hours"
+        ]
         for d in self._date_range():
             lines.append(self._row(d))
         return "\n".join(lines) + "\n"
@@ -468,7 +498,9 @@ class WorkText:
         active: float = self._active.get(d, 0) / 3600
         afk: float = span - active
         spacing: str = "  " if is_holiday else "   "
-        base: str = f"{prefix}{spacing}{self._time(s, d)} - {self._time(e, d)}   ({span:.1f}h)"
+        base: str = (
+            f"{prefix}{spacing}{self._time(s, d)} - {self._time(e, d)}   ({span:.1f}h)"
+        )
         if afk < 0.05:
             return base
         max_gap: float = self._max_gap.get(d, 0) / 3600
@@ -491,172 +523,200 @@ class WorkHTMLTemplate:
 
     @classmethod
     def _html(cls, no_colon_js: str, init_month_js: str) -> str:
-        return f'''<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<title>Work Hours</title>
-{cls._css()}
-</head>
-<body>
-<h2>Work Hours - Active Time Visualization</h2>
-{cls._controls()}
-<table id="table"></table>
-{cls._script(no_colon_js, init_month_js)}
-</body>
-</html>
-'''
+        css: str = cls._css()
+        controls: str = cls._controls()
+        script: str = cls._script(no_colon_js, init_month_js)
+        page: str = (
+            f'<!DOCTYPE html>\n<html lang="ja">\n<head>\n'
+            f'<meta charset="UTF-8">\n<title>Work Hours</title>\n'
+            f"{css}\n</head>\n<body>\n"
+            f"<h2>Work Hours - Active Time Visualization</h2>\n"
+            f'{controls}\n<table id="table"></table>\n'
+            f"{script}\n</body>\n</html>\n"
+        )
+        return page
+
+    _CSS: str = "\n".join(
+        [
+            "<style>",
+            "body { font-family: monospace; margin: 20px; background: #fafafa; }",
+            ".controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }",
+            ".controls button { padding: 5px 15px; cursor: pointer; }",
+            '.controls input[type="month"] { padding: 5px; width: 100px; font-family: monospace; }',
+            '.controls input[type="checkbox"] { width: auto; }',
+            ".status { color: #888; margin-left: 10px; }",
+            "table { border-collapse: collapse; width: 100%; }",
+            "td { padding: 2px 4px; vertical-align: middle; }",
+            "td.date { white-space: nowrap; }",
+            "td.time { white-space: nowrap; text-align: right; }",
+            "td.dur { white-space: nowrap; text-align: right; }",
+            "td.afk { white-space: nowrap; text-align: right; color: #888; }",
+            "td.timeline-cell { width: 100%; }",
+            ".holiday { color: #e57373; }",
+            ".timeline { position: relative; height: 18px; background: #f5f5f5;"
+            " border: 1px solid #e0e0e0; border-radius: 3px; }",
+            ".event { position: absolute; height: 100%; background: #a5d6a7;"
+            " cursor: pointer; min-width: 2px; border-radius: 3px; }",
+            ".event:hover { background: #81c784; }",
+            ".tooltip { display: none; position: absolute; background: #fffde7;"
+            " border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px;"
+            " white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15);"
+            " border-radius: 4px; }",
+            ".tooltip-row { margin: 2px 0; }",
+            ".tooltip-label { font-weight: bold; display: inline-block; width: 60px; }",
+            ".hour-marks { position: absolute; top: 0; left: 0; right: 0;"
+            " bottom: 0; pointer-events: none; }",
+            ".hour-mark { position: absolute; top: 0; bottom: 0;"
+            " border-left: 1px solid #e0e0e0; }",
+            ".hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }",
+            ".hour-labels td div { display: flex; }",
+            ".hour-labels td div span { flex: 1; text-align: left; }",
+            "</style>",
+        ]
+    )
 
     @classmethod
     def _css(cls) -> str:
-        return '''<style>
-body { font-family: monospace; margin: 20px; background: #fafafa; }
-.controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-.controls button { padding: 5px 15px; cursor: pointer; }
-.controls input[type="month"] { padding: 5px; width: 100px; font-family: monospace; }
-.controls input[type="checkbox"] { width: auto; }
-.status { color: #888; margin-left: 10px; }
-table { border-collapse: collapse; width: 100%; }
-td { padding: 2px 4px; vertical-align: middle; }
-td.date { white-space: nowrap; }
-td.time { white-space: nowrap; text-align: right; }
-td.dur { white-space: nowrap; text-align: right; }
-td.afk { white-space: nowrap; text-align: right; color: #888; }
-td.timeline-cell { width: 100%; }
-.holiday { color: #e57373; }
-.timeline { position: relative; height: 18px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; }
-.event { position: absolute; height: 100%; background: #a5d6a7; cursor: pointer; min-width: 2px; border-radius: 3px; }
-.event:hover { background: #81c784; }
-.tooltip { display: none; position: absolute; background: #fffde7; border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px; white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15); border-radius: 4px; }
-.tooltip-row { margin: 2px 0; }
-.tooltip-label { font-weight: bold; display: inline-block; width: 60px; }
-.hour-marks { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
-.hour-mark { position: absolute; top: 0; bottom: 0; border-left: 1px solid #e0e0e0; }
-.hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }
-.hour-labels td div { display: flex; }
-.hour-labels td div span { flex: 1; text-align: left; }
-</style>'''
+        return cls._CSS
+
+    _CONTROLS: str = "\n".join(
+        [
+            '<div class="controls">',
+            '<button id="prev">&lt; 前月</button>',
+            '<input type="month" id="month">',
+            '<button id="next">次月 &gt;</button>',
+            '<label style="margin-left: 15px; cursor: pointer;">'
+            '<input type="checkbox" id="noColon" style="margin-right: 4px;">'
+            "コロンなし</label>",
+            '<span class="status" id="status"></span>',
+            "</div>",
+        ]
+    )
 
     @classmethod
     def _controls(cls) -> str:
-        return '''<div class="controls">
-<button id="prev">&lt; 前月</button>
-<input type="month" id="month">
-<button id="next">次月 &gt;</button>
-<label style="margin-left: 15px; cursor: pointer;"><input type="checkbox" id="noColon" style="margin-right: 4px;">コロンなし</label>
-<span class="status" id="status"></span>
-</div>'''
+        return cls._CONTROLS
 
-    @classmethod
-    def _script(cls, no_colon_js: str, init_month_js: str) -> str:
-        return f'''<script>
-const INIT_NO_COLON = {no_colon_js};
-const INIT_MONTH = {init_month_js};
+    _SCRIPT_TEMPLATE: str = """<script>
+const INIT_NO_COLON = __NO_COLON_JS__;
+const INIT_MONTH = __INIT_MONTH_JS__;
 let noColon = INIT_NO_COLON;
 
-function formatTime(h, m) {{
+function formatTime(h, m) {
     const sep = noColon ? '' : ':';
     return String(h).padStart(2, '0') + sep + String(m).padStart(2, '0');
-}}
+}
 
-async function loadMonth(ym) {{
+async function loadMonth(ym) {
     const status = document.getElementById('status');
     status.textContent = '読み込み中...';
     let data;
-    try {{
-        const res = await fetch(`/data/${{ym}}`);
+    try {
+        const res = await fetch(`/data/${ym}`);
         data = await res.json();
-    }} catch (e) {{
+    } catch (e) {
         status.textContent = 'エラー: データを取得できません';
         return;
-    }}
-    status.textContent = `勤務: ${{data.rows.filter(r => r.hasWork).length}}日`;
+    }
+    status.textContent = `勤務: ${data.rows.filter(r => r.hasWork).length}日`;
     render(data.rows);
-}}
+}
 
-function formatDuration(sec) {{
+function formatDuration(sec) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
-    return m >= 1 ? `${{m}}m ${{s}}s` : `${{s}}s`;
-}}
+    return m >= 1 ? `${m}m ${s}s` : `${s}s`;
+}
 
-function render(rows) {{
+function render(rows) {
     const table = document.getElementById('table');
     let html = '<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>';
-    for (let h = 0; h < 24; h += 4) html += `<span>${{String(h).padStart(2,'0')}}:00</span>`;
+    for (let h = 0; h < 24; h += 4) html += `<span>${String(h).padStart(2,'0')}:00</span>`;
     html += '</div></td></tr>';
-    for (const row of rows) {{
+    for (const row of rows) {
         const holClass = row.holiday ? ' class="holiday"' : '';
         const holMark = row.holiday ? '*' : '';
-        const dateCol = `${{row.date}} ${{row.weekday}}${{holMark}}`;
+        const dateCol = `${row.date} ${row.weekday}${holMark}`;
         let timeCol = '', durCol = '', afkCol = '';
-        if (row.hasWork) {{
-            timeCol = `${{formatTime(row.startH, row.startM)}} - ${{formatTime(row.endH, row.endM)}}`;
-            durCol = `(${{row.span.toFixed(1)}}h)`;
-            if (row.afk !== undefined) afkCol = `-${{row.afk.toFixed(1)}}h (max:-${{row.maxGap.toFixed(1)}}h)`;
-        }}
-        const hourMarks = [4,8,12,16,20].map(h => `<div class="hour-mark" style="left:${{(h/24)*100}}%"></div>`).join('');
+        if (row.hasWork) {
+            timeCol = `${formatTime(row.startH, row.startM)} - ${formatTime(row.endH, row.endM)}`;
+            durCol = `(${row.span.toFixed(1)}h)`;
+            if (row.afk !== undefined) afkCol = `-${row.afk.toFixed(1)}h (max:-${row.maxGap.toFixed(1)}h)`;
+        }
+        const hourMarks = [4,8,12,16,20].map(h => `<div class="hour-mark" style="left:${(h/24)*100}%"></div>`).join('');
         let eventBars = '';
-        for (const ev of row.events || []) {{
+        for (const ev of row.events || []) {
             const startSec = ev.startH * 3600 + ev.startM * 60 + ev.startS;
             const endSec = ev.endH * 3600 + ev.endM * 60 + ev.endS;
             const left = (startSec / 86400) * 100;
             const width = Math.max(0.1, ((endSec - startSec) / 86400) * 100);
-            const startTime = `${{String(ev.startH).padStart(2,'0')}}:${{String(ev.startM).padStart(2,'0')}}:${{String(ev.startS).padStart(2,'0')}}`;
-            const endTime = `${{String(ev.endH).padStart(2,'0')}}:${{String(ev.endM).padStart(2,'0')}}:${{String(ev.endS).padStart(2,'0')}}`;
-            eventBars += `<div class="event" style="left:${{left.toFixed(2)}}%;width:${{width.toFixed(2)}}%;">
+            const startTime = `${String(ev.startH).padStart(2,'0')}:${String(ev.startM).padStart(2,'0')}:${String(ev.startS).padStart(2,'0')}`;
+            const endTime = `${String(ev.endH).padStart(2,'0')}:${String(ev.endM).padStart(2,'0')}:${String(ev.endS).padStart(2,'0')}`;
+            eventBars += `<div class="event" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;">
 <div class="tooltip">
-<div class="tooltip-row"><span class="tooltip-label">Start</span>${{startTime}}</div>
-<div class="tooltip-row"><span class="tooltip-label">Stop</span>${{endTime}}</div>
-<div class="tooltip-row"><span class="tooltip-label">Duration</span>${{formatDuration(ev.duration)}}</div>
-<div class="tooltip-row"><span class="tooltip-label">Data</span>${{JSON.stringify(ev.data)}}</div>
+<div class="tooltip-row"><span class="tooltip-label">Start</span>${startTime}</div>
+<div class="tooltip-row"><span class="tooltip-label">Stop</span>${endTime}</div>
+<div class="tooltip-row"><span class="tooltip-label">Duration</span>${formatDuration(ev.duration)}</div>
+<div class="tooltip-row"><span class="tooltip-label">Data</span>${JSON.stringify(ev.data)}</div>
 </div></div>`;
-        }}
-        html += `<tr${{holClass}}><td class="date">${{dateCol}}</td><td class="time">${{timeCol}}</td><td class="dur">${{durCol}}</td><td class="afk">${{afkCol}}</td><td class="timeline-cell"><div class="timeline"><div class="hour-marks">${{hourMarks}}</div>${{eventBars}}</div></td></tr>`;
-    }}
+        }
+        html += `<tr${holClass}><td class="date">${dateCol}</td><td class="time">${timeCol}</td><td class="dur">${durCol}</td><td class="afk">${afkCol}</td><td class="timeline-cell"><div class="timeline"><div class="hour-marks">${hourMarks}</div>${eventBars}</div></td></tr>`;
+    }
     table.innerHTML = html;
-    document.querySelectorAll('.event').forEach(el => {{
+    document.querySelectorAll('.event').forEach(el => {
         const tooltip = el.querySelector('.tooltip');
-        el.addEventListener('mouseenter', () => {{
+        el.addEventListener('mouseenter', () => {
             tooltip.style.display = 'block';
             tooltip.style.top = '22px';
             tooltip.style.left = '0px';
             tooltip.style.right = 'auto';
             const rect = tooltip.getBoundingClientRect();
-            if (rect.right > window.innerWidth) {{ tooltip.style.left = 'auto'; tooltip.style.right = '0px'; }}
-        }});
+            if (rect.right > window.innerWidth) { tooltip.style.left = 'auto'; tooltip.style.right = '0px'; }
+        });
         el.addEventListener('mouseleave', () => tooltip.style.display = 'none');
-    }});
-}}
+    });
+}
 
-function changeMonth(delta) {{
+function changeMonth(delta) {
     const input = document.getElementById('month');
     const [y, m] = input.value.split('-').map(Number);
     const d = new Date(y, m - 1 + delta, 1);
-    input.value = `${{d.getFullYear()}}-${{String(d.getMonth() + 1).padStart(2, '0')}}`;
+    input.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     loadMonth(input.value);
-}}
+}
 
 document.getElementById('prev').addEventListener('click', () => changeMonth(-1));
 document.getElementById('next').addEventListener('click', () => changeMonth(1));
 document.getElementById('month').addEventListener('change', e => loadMonth(e.target.value));
-document.getElementById('noColon').addEventListener('change', e => {{
+document.getElementById('noColon').addEventListener('change', e => {
     noColon = e.target.checked;
     loadMonth(document.getElementById('month').value);
-}});
+});
 
 const now = new Date();
-const initMonth = INIT_MONTH || `${{now.getFullYear()}}-${{String(now.getMonth() + 1).padStart(2, '0')}}`;
+const initMonth = INIT_MONTH || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 document.getElementById('month').value = initMonth;
 document.getElementById('noColon').checked = INIT_NO_COLON;
 loadMonth(initMonth);
-</script>'''
+</script>"""
+
+    @classmethod
+    def _script(cls, no_colon_js: str, init_month_js: str) -> str:
+        return cls._SCRIPT_TEMPLATE.replace("__NO_COLON_JS__", no_colon_js).replace(
+            "__INIT_MONTH_JS__", init_month_js
+        )
 
 
 class WorkHTMLRow:
     """HTML用の日別行データ"""
 
-    def __init__(self, d: date, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar) -> None:
+    def __init__(
+        self,
+        d: date,
+        calendar: WorkCalendar,
+        daily_work: DailyWork,
+        holidays: HolidayCalendar,
+    ) -> None:
         self._date: date = d
         self._calendar: WorkCalendar = calendar
         self._daily_work: DailyWork = daily_work
@@ -670,16 +730,29 @@ class WorkHTMLRow:
         current: date = start.date()
         while current <= end.date():
             if current == self._date:
-                day_start: datetime = max(start, datetime.combine(current, datetime.min.time()).replace(tzinfo=_TIMEZONE))
-                day_end_limit: datetime = datetime.combine(current + timedelta(days=1), datetime.min.time()).replace(tzinfo=_TIMEZONE)
+                day_start: datetime = max(
+                    start,
+                    datetime.combine(current, datetime.min.time()).replace(
+                        tzinfo=_TIMEZONE
+                    ),
+                )
+                day_end_limit: datetime = datetime.combine(
+                    current + timedelta(days=1), datetime.min.time()
+                ).replace(tzinfo=_TIMEZONE)
                 day_end: datetime = min(end, day_end_limit)
                 if day_end > day_start:
-                    self._events.append(self._event_dict(day_start, day_end, current, event))
+                    self._events.append(
+                        self._event_dict(day_start, day_end, current, event)
+                    )
             current += timedelta(days=1)
 
-    def _event_dict(self, start: datetime, end: datetime, current: date, event: dict) -> dict:
+    def _event_dict(
+        self, start: datetime, end: datetime, current: date, event: dict
+    ) -> dict:
         return {
-            "startH": start.hour, "startM": start.minute, "startS": start.second,
+            "startH": start.hour,
+            "startM": start.minute,
+            "startS": start.second,
             "endH": end.hour if end.date() == current else 24,
             "endM": end.minute if end.date() == current else 0,
             "endS": end.second if end.date() == current else 0,
@@ -691,7 +764,12 @@ class WorkHTMLRow:
         d: date = self._date
         has_work: bool = d in self._calendar.daily
         is_holiday: bool = has_work and self._holidays.is_holiday(d)
-        row: dict = {"date": d.isoformat(), "weekday": _WEEKDAYS[d.weekday()], "holiday": is_holiday, "hasWork": has_work}
+        row: dict = {
+            "date": d.isoformat(),
+            "weekday": _WEEKDAYS[d.weekday()],
+            "holiday": is_holiday,
+            "hasWork": has_work,
+        }
         if has_work:
             self._add_work_fields(row, d)
         row["events"] = self._events
@@ -725,7 +803,9 @@ class WorkHTMLResponse:
         self._populate_events(rows, events)
         return {"rows": [r.to_dict() for r in rows]}
 
-    def _create_rows(self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar) -> list[WorkHTMLRow]:
+    def _create_rows(
+        self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar
+    ) -> list[WorkHTMLRow]:
         rows: list[WorkHTMLRow] = []
         today: date = datetime.now(_TIMEZONE).date()
         start_date, end_date = self._period.dates
@@ -739,9 +819,15 @@ class WorkHTMLResponse:
         return rows
 
     def _populate_events(self, rows: list[WorkHTMLRow], events: AFKEvents) -> None:
-        not_afk: list[dict] = [e for e in events.raw if e["data"]["status"] == "not-afk" and e["duration"] >= 5]
+        not_afk: list[dict] = [
+            e
+            for e in events.raw
+            if e["data"]["status"] == "not-afk" and e["duration"] >= 5
+        ]
         for ev in not_afk:
-            start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(_TIMEZONE)
+            start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(
+                _TIMEZONE
+            )
             end: datetime = start + timedelta(seconds=ev["duration"])
             for row in rows:
                 row.add_event(start, end, ev)
@@ -771,7 +857,9 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             month_str: str = self.path.split("/")[-1]
             period: MonthPeriod = MonthPeriod.parse(month_str)
             response: WorkHTMLResponse = WorkHTMLResponse(period)
-            body: bytes = json.dumps(response.json(), ensure_ascii=False).encode("utf-8")
+            body: bytes = json.dumps(response.json(), ensure_ascii=False).encode(
+                "utf-8"
+            )
             self._send_json(body)
         except Exception as e:
             self.send_error(500, f"Error: {e}")
@@ -779,7 +867,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def _send_json(self, body: bytes) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", len(body))
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
@@ -817,14 +905,17 @@ class WorkHTTPServer:
 
     def _start_server(self, quiet: bool) -> None:
         WorkHTTPHandler.directory = self._html_dir
+
         def serve() -> None:
             with http.server.HTTPServer(("", self._port), WorkHTTPHandler) as httpd:
                 httpd.serve_forever()
+
         threading.Thread(target=serve, daemon=True).start()
         self._status(f"サーバー起動: http://localhost:{self._port}/", quiet)
 
     def _open_browser(self, quiet: bool) -> None:
         import time
+
         url: str = f"http://localhost:{self._port}/aw-work-hours.html"
         self._status(f"ブラウザで開きます: {url}", quiet)
         subprocess.run(["open", url], check=False)
@@ -852,20 +943,36 @@ class CLIArgs:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=self._epilog(),
         )
-        p.add_argument("--month", "-m", default="this", help="対象月: this(今月), last(先月), all(全期間), YYYY-MM")
+        p.add_argument(
+            "--month",
+            "-m",
+            default="this",
+            help="対象月: this(今月), last(先月), all(全期間), YYYY-MM",
+        )
         p.add_argument("--output", "-o", help="出力ファイル名")
         p.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
-        p.add_argument("--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）")
+        p.add_argument(
+            "--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）"
+        )
         p.add_argument("--html", action="store_true", help="HTML形式でブラウザ表示")
-        p.add_argument("--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）")
+        p.add_argument(
+            "--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）"
+        )
         return p.parse_args()
 
+    _EPILOG: str = "\n".join(
+        [
+            "例:",
+            "  aw-work-hours                    今月の勤務時間を出力",
+            "  aw-work-hours --month=last       先月の勤務時間を出力",
+            "  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力",
+            "  aw-work-hours --month=all        全期間の勤務時間を出力",
+            "  aw-work-hours -o work.csv        ファイルに出力",
+        ]
+    )
+
     def _epilog(self) -> str:
-        return ("例:\n  aw-work-hours                    今月の勤務時間を出力\n"
-                "  aw-work-hours --month=last       先月の勤務時間を出力\n"
-                "  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力\n"
-                "  aw-work-hours --month=all        全期間の勤務時間を出力\n"
-                "  aw-work-hours -o work.csv        ファイルに出力")
+        return self._EPILOG
 
     @property
     def month(self) -> str:
@@ -898,21 +1005,41 @@ class CLIOutput:
     def __init__(self, args: CLIArgs) -> None:
         self._args: CLIArgs = args
 
-    def run(self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod) -> None:
+    def run(
+        self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod
+    ) -> None:
         holidays: HolidayCalendar = HolidayCalendar()
         if self._args.output:
             self._write_csv(calendar, daily_work, period)
         else:
             self._print_text(calendar, daily_work, period, holidays)
 
-    def _write_csv(self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod) -> None:
-        csv: WorkCSV = WorkCSV(calendar.daily, daily_work.active, daily_work.gaps, period)
-        with open(self._args.output, "w", encoding="utf-8-sig") as f:
+    def _write_csv(
+        self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod
+    ) -> None:
+        csv: WorkCSV = WorkCSV(
+            calendar.daily, daily_work.active, daily_work.gaps, period
+        )
+        output_abspath: str = self._args.output  # type: ignore[assignment]
+        with open(output_abspath, "w", encoding="utf-8-sig") as f:
             f.write(csv.content())
-        self._status(f"出力完了: {self._args.output}")
+        self._status(f"出力完了: {output_abspath}")
 
-    def _print_text(self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod, holidays: HolidayCalendar) -> None:
-        text: WorkText = WorkText(calendar.daily, daily_work.active, daily_work.gaps, period, holidays, self._args.no_colon)
+    def _print_text(
+        self,
+        calendar: WorkCalendar,
+        daily_work: DailyWork,
+        period: MonthPeriod,
+        holidays: HolidayCalendar,
+    ) -> None:
+        text: WorkText = WorkText(
+            calendar.daily,
+            daily_work.active,
+            daily_work.gaps,
+            period,
+            holidays,
+            self._args.no_colon,
+        )
         print(text.content(), end="")
 
     def _status(self, msg: str) -> None:
