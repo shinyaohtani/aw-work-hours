@@ -31,10 +31,102 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 _API_BASE: str = "http://127.0.0.1:5600/api/0"
-_BUCKET_ID: str = "aw-watcher-afk_PC-MC2408N0009B.local"
 _TIMEZONE: ZoneInfo = ZoneInfo("Asia/Tokyo")
 _WORK_GAP_SECONDS: int = 3 * 60 * 60
 _WEEKDAYS: list[str] = ["月", "火", "水", "木", "金", "土", "日"]
+
+_cached_bucket_id: str | None = None
+_specified_bucket: str | None = None
+
+
+def _set_bucket_preference(bucket_name: str | None) -> None:
+    """バケット選択の優先設定（PC名の部分一致で指定）"""
+    global _specified_bucket
+    _specified_bucket = bucket_name
+
+
+def _get_afk_bucket_id() -> str:
+    """AFKバケットIDを自動検出する（最新データを持つバケットを選択）"""
+    global _cached_bucket_id
+    if _cached_bucket_id:
+        return _cached_bucket_id
+
+    url: str = f"{_API_BASE}/buckets"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            buckets: dict = json.loads(response.read().decode())
+    except urllib.error.URLError as e:
+        print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
+        print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
+        print(f"詳細: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    afk_buckets: list[str] = [
+        bid for bid in buckets.keys() if bid.startswith("aw-watcher-afk_")
+    ]
+
+    if not afk_buckets:
+        print("エラー: AFKバケットが見つかりません", file=sys.stderr)
+        print("aw-watcher-afkが有効か確認してください", file=sys.stderr)
+        sys.exit(1)
+
+    # --bucket オプションで指定された場合、マッチするバケットを探す
+    if _specified_bucket:
+        matched: list[str] = [
+            bid for bid in afk_buckets
+            if _specified_bucket.lower() in bid.lower()
+        ]
+        if not matched:
+            print(f"エラー: '{_specified_bucket}' にマッチするバケットが見つかりません", file=sys.stderr)
+            print("利用可能なバケット:", file=sys.stderr)
+            for bid in afk_buckets:
+                print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
+            sys.exit(1)
+        if len(matched) > 1:
+            print(f"エラー: '{_specified_bucket}' に複数のバケットがマッチしました:", file=sys.stderr)
+            for bid in matched:
+                print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
+            sys.exit(1)
+        _cached_bucket_id = matched[0]
+        return _cached_bucket_id
+
+    if len(afk_buckets) == 1:
+        _cached_bucket_id = afk_buckets[0]
+        return _cached_bucket_id
+
+    # 複数バケットがある場合、各バケットの最新イベント日時を取得
+    bucket_info: list[tuple[str, datetime | None, str]] = []
+    for bid in afk_buckets:
+        hostname: str = bid.replace("aw-watcher-afk_", "")
+        last_event: datetime | None = _get_bucket_last_event(bid)
+        bucket_info.append((bid, last_event, hostname))
+
+    # 最新イベント日時でソート（Noneは最後）
+    bucket_info.sort(key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True)
+
+    print("複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:", file=sys.stderr)
+    for i, (bid, last_event, hostname) in enumerate(bucket_info):
+        last_str: str = last_event.strftime("%Y-%m-%d %H:%M") if last_event else "データなし"
+        marker: str = " ← 使用" if i == 0 else ""
+        print(f"  {hostname}: 最終記録 {last_str}{marker}", file=sys.stderr)
+    print("最新のデータを持つバケットを自動選択しました。", file=sys.stderr)
+    print("特定のバケットを使う場合: --bucket=PC名", file=sys.stderr)
+
+    _cached_bucket_id = bucket_info[0][0]
+    return _cached_bucket_id
+
+
+def _get_bucket_last_event(bucket_id: str) -> datetime | None:
+    """バケットの最新イベント日時を取得"""
+    url: str = f"{_API_BASE}/buckets/{bucket_id}/events?limit=1"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            events: list = json.loads(response.read().decode())
+            if events:
+                return datetime.fromisoformat(events[0]["timestamp"]).astimezone(_TIMEZONE)
+    except (urllib.error.URLError, KeyError, IndexError):
+        pass
+    return None
 
 
 class MonthPeriod:
@@ -91,7 +183,8 @@ class AFKEvents:
 
     @classmethod
     def fetch(cls, start: str | None, end: str | None) -> "AFKEvents":
-        url: str = f"{_API_BASE}/buckets/{_BUCKET_ID}/events"
+        bucket_id: str = _get_afk_bucket_id()
+        url: str = f"{_API_BASE}/buckets/{bucket_id}/events"
         params: dict[str, str] = {"limit": "-1"}
         if start:
             params["start"] = start
@@ -594,6 +687,7 @@ class CLI:
 
     def run(self) -> None:
         args: argparse.Namespace = self._args()
+        _set_bucket_preference(args.bucket)
 
         if args.html:
             init_month: str | None = None
@@ -647,6 +741,9 @@ class CLI:
             "--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）"
         )
         p.add_argument("--html", action="store_true", help="HTML形式でブラウザ表示")
+        p.add_argument(
+            "--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）"
+        )
         return p.parse_args()
 
     def _status(self, msg: str, quiet: bool) -> None:
