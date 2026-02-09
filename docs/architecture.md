@@ -173,7 +173,7 @@ flowchart LR
 | 11 | WEB | WorkHTMLRow | 5 | Per-day row data for HTML |
 | 12 | WEB | WorkHTMLResponse | 4 | JSON API response for HTML frontend |
 | 13 | WEB | WorkHTTPHandler | 6 | HTTP request routing and proxy |
-| 14 | WEB | WorkHTTPServer | 7 | HTTP server lifecycle management |
+| 14 | WEB | WorkHTTPServer | 6 | HTTP server lifecycle management |
 | 15 | WEB | WorkHTMLTemplate | 5 | HTML page template (CSS/JS/controls) |
 | 16 | CLI | CLIArgs | 9 | CLI argument parsing and properties |
 | 17 | CLI | CLIOutput | 5 | Output dispatch (CSV or text) |
