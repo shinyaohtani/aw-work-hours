@@ -1199,6 +1199,7 @@ class CLIMain:
             sys.exit(1)
 
     def _run_html(self) -> None:
+        AFKBucket.id()
         init_month: str | None = self._resolve_init_month()
         html: str = WorkHTMLTemplate.render(self._args.no_colon, init_month)
         server: WorkHTTPServer = WorkHTTPServer()
