@@ -47,7 +47,8 @@ flowchart TD
         AFKEvents -->|"ルール参照"| WorkRule
         DailyWork -.->|"work_date()"| WorkRule
         WorkCalendar -.->|"work_date()"| WorkRule
-        WorkCalendar -->|"from_period()"| AFKEvents & DailyWork
+        WorkCalendar -->|"from_period()"| AFKEvents
+        WorkCalendar -->|"from_period()"| DailyWork
     end
 
     subgraph output["Output"]
@@ -87,7 +88,8 @@ flowchart TD
     WorkHTMLRow -->|"adjusted_hour()"| WorkRule
 
     %% Exception flow
-    CLIMain -.->|"catch"| CLIError & APIConnectionError
+    CLIMain -.->|"catch"| CLIError
+    CLIMain -.->|"catch"| APIConnectionError
 
     AW[("ActivityWatch<br/>localhost:5600")]
     HJ[("holidays-jp<br/>API")]
@@ -123,10 +125,24 @@ flowchart LR
         D3["WorkHTMLResponse<br/>+ WorkHTMLRow<br/>JSON API"]
     end
 
-    A1 --> A2 & A3
-    A2 & A3 --> B1
-    B1 --> C1 & C2
-    C1 & C2 & C3 & C4 --> D1 & D2 & D3
+    A1 --> A2
+    A1 --> A3
+    A2 --> B1
+    A3 --> B1
+    B1 --> C1
+    B1 --> C2
+    C1 --> D1
+    C1 --> D2
+    C1 --> D3
+    C2 --> D1
+    C2 --> D2
+    C2 --> D3
+    C3 --> D1
+    C3 --> D2
+    C3 --> D3
+    C4 --> D1
+    C4 --> D2
+    C4 --> D3
 ```
 
 ## Exception Flow
@@ -148,8 +164,12 @@ flowchart LR
         W1["WorkHTTPHandler<br/>catch → send_error(500)"]
     end
 
-    D1 & D2 & D3 & D4 -->|raise| C1
-    D3 & D4 -->|raise| W1
+    D1 -->|raise| C1
+    D2 -->|raise| C1
+    D3 -->|raise| C1
+    D4 -->|raise| C1
+    D3 -->|raise| W1
+    D4 -->|raise| W1
 ```
 
 ## Class Summary
