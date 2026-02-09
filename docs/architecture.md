@@ -102,27 +102,27 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph input["1. Input"]
-        A1["CLIArgs<br/>引数解析"]
-        A2["AFKBucket<br/>バケット特定"]
-        A3["MonthPeriod<br/>期間特定"]
+    subgraph input[Input]
+        A1["CLIArgs"]
+        A2["AFKBucket"]
+        A3["MonthPeriod"]
     end
 
-    subgraph fetch["2. Fetch"]
-        B1["WorkCalendar.from_period()<br/>イベント取得+変換"]
+    subgraph fetch[Fetch]
+        B1["WorkCalendar.from_period()"]
     end
 
-    subgraph process["3. Process"]
-        C1["WorkCalendar<br/>勤務日マッピング"]
-        C2["DailyWork<br/>日別統計"]
-        C3["HolidayCalendar<br/>祝日判定"]
-        C4["WorkRule<br/>勤務仕様ルール"]
+    subgraph process[Process]
+        C1["WorkCalendar"]
+        C2["DailyWork"]
+        C3["HolidayCalendar"]
+        C4["WorkRule"]
     end
 
-    subgraph output["4. Output"]
-        D1["WorkText<br/>テキスト"]
-        D2["WorkCSV<br/>CSV"]
-        D3["WorkHTMLResponse<br/>+ WorkHTMLRow<br/>JSON API"]
+    subgraph output[Output]
+        D1["WorkText"]
+        D2["WorkCSV"]
+        D3["WorkHTMLResponse"]
     end
 
     A1 --> A2
@@ -149,19 +149,19 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph domain["Domain Layer"]
-        D1["MonthPeriod<br/>CLIError"]
-        D2["AFKBucketCandidates<br/>CLIError"]
-        D3["AFKBucket<br/>APIConnectionError"]
-        D4["AFKEvents<br/>APIConnectionError"]
+    subgraph domain[Domain Layer]
+        D1["MonthPeriod: CLIError"]
+        D2["AFKBucketCandidates: CLIError"]
+        D3["AFKBucket: APIConnectionError"]
+        D4["AFKEvents: APIConnectionError"]
     end
 
-    subgraph cli["CLI Layer"]
-        C1["CLIMain.run()<br/>catch → stderr + exit(1)"]
+    subgraph cli[CLI Layer]
+        C1["CLIMain.run\ncatch → stderr + exit 1"]
     end
 
-    subgraph web["Web Layer"]
-        W1["WorkHTTPHandler<br/>catch → send_error(500)"]
+    subgraph web[Web Layer]
+        W1["WorkHTTPHandler\ncatch → send_error 500"]
     end
 
     D1 -->|raise| C1
