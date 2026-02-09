@@ -3,3 +3,5 @@
 .claude/
 holiday_cache/
 work.html
+__pycache__/
+.pytest_cache/
