@@ -17,16 +17,16 @@ Usage:
 import argparse
 import http.server
 import json
-import os
 import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import threading
-import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime, timedelta, date
+import urllib.request
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,98 +35,108 @@ _TIMEZONE: ZoneInfo = ZoneInfo("Asia/Tokyo")
 _WORK_GAP_SECONDS: int = 3 * 60 * 60
 _WEEKDAYS: list[str] = ["月", "火", "水", "木", "金", "土", "日"]
 
-_cached_bucket_id: str | None = None
-_specified_bucket: str | None = None
 
+class AFKBucket:
+    """ActivityWatchのAFKバケット"""
 
-def _set_bucket_preference(bucket_name: str | None) -> None:
-    """バケット選択の優先設定（PC名の部分一致で指定）"""
-    global _specified_bucket
-    _specified_bucket = bucket_name
+    _cached_id: str | None = None
+    _preference: str | None = None
 
+    @classmethod
+    def set_preference(cls, hostname: str | None) -> None:
+        cls._preference = hostname
 
-def _get_afk_bucket_id() -> str:
-    """AFKバケットIDを自動検出する（最新データを持つバケットを選択）"""
-    global _cached_bucket_id
-    if _cached_bucket_id:
-        return _cached_bucket_id
+    @classmethod
+    def id(cls) -> str:
+        if cls._cached_id:
+            return cls._cached_id
+        buckets: dict = cls._fetch_buckets()
+        afk_ids: list[str] = [b for b in buckets if b.startswith("aw-watcher-afk_")]
+        cls._cached_id = cls._select(afk_ids)
+        return cls._cached_id
 
-    url: str = f"{_API_BASE}/buckets"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            buckets: dict = json.loads(response.read().decode())
-    except urllib.error.URLError as e:
-        print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
-        print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
-        print(f"詳細: {e}", file=sys.stderr)
-        sys.exit(1)
+    @classmethod
+    def _fetch_buckets(cls) -> dict:
+        url: str = f"{_API_BASE}/buckets"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.URLError as e:
+            print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
+            print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
+            print(f"詳細: {e}", file=sys.stderr)
+            sys.exit(1)
 
-    afk_buckets: list[str] = [
-        bid for bid in buckets.keys() if bid.startswith("aw-watcher-afk_")
-    ]
+    @classmethod
+    def _select(cls, afk_ids: list[str]) -> str:
+        if not afk_ids:
+            print("エラー: AFKバケットが見つかりません", file=sys.stderr)
+            print("aw-watcher-afkが有効か確認してください", file=sys.stderr)
+            sys.exit(1)
+        if cls._preference:
+            return cls._select_by_preference(afk_ids)
+        if len(afk_ids) == 1:
+            return afk_ids[0]
+        return cls._select_latest(afk_ids)
 
-    if not afk_buckets:
-        print("エラー: AFKバケットが見つかりません", file=sys.stderr)
-        print("aw-watcher-afkが有効か確認してください", file=sys.stderr)
-        sys.exit(1)
-
-    # --bucket オプションで指定された場合、マッチするバケットを探す
-    if _specified_bucket:
+    @classmethod
+    def _select_by_preference(cls, afk_ids: list[str]) -> str:
         matched: list[str] = [
-            bid for bid in afk_buckets
-            if _specified_bucket.lower() in bid.lower()
+            b for b in afk_ids if cls._preference.lower() in b.lower()
         ]
         if not matched:
-            print(f"エラー: '{_specified_bucket}' にマッチするバケットが見つかりません", file=sys.stderr)
-            print("利用可能なバケット:", file=sys.stderr)
-            for bid in afk_buckets:
-                print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
+            cls._print_no_match_error(afk_ids)
             sys.exit(1)
         if len(matched) > 1:
-            print(f"エラー: '{_specified_bucket}' に複数のバケットがマッチしました:", file=sys.stderr)
-            for bid in matched:
-                print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
+            cls._print_multi_match_error(matched)
             sys.exit(1)
-        _cached_bucket_id = matched[0]
-        return _cached_bucket_id
+        return matched[0]
 
-    if len(afk_buckets) == 1:
-        _cached_bucket_id = afk_buckets[0]
-        return _cached_bucket_id
+    @classmethod
+    def _print_no_match_error(cls, afk_ids: list[str]) -> None:
+        print(f"エラー: '{cls._preference}' にマッチするバケットが見つかりません", file=sys.stderr)
+        print("利用可能なバケット:", file=sys.stderr)
+        for bid in afk_ids:
+            print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
 
-    # 複数バケットがある場合、各バケットの最新イベント日時を取得
-    bucket_info: list[tuple[str, datetime | None, str]] = []
-    for bid in afk_buckets:
-        hostname: str = bid.replace("aw-watcher-afk_", "")
-        last_event: datetime | None = _get_bucket_last_event(bid)
-        bucket_info.append((bid, last_event, hostname))
+    @classmethod
+    def _print_multi_match_error(cls, matched: list[str]) -> None:
+        print(f"エラー: '{cls._preference}' に複数のバケットがマッチしました:", file=sys.stderr)
+        for bid in matched:
+            print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
 
-    # 最新イベント日時でソート（Noneは最後）
-    bucket_info.sort(key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True)
+    @classmethod
+    def _select_latest(cls, afk_ids: list[str]) -> str:
+        infos: list[tuple[str, datetime | None, str]] = []
+        for bid in afk_ids:
+            hostname: str = bid.replace("aw-watcher-afk_", "")
+            last: datetime | None = cls._last_event(bid)
+            infos.append((bid, last, hostname))
+        infos.sort(key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True)
+        cls._print_bucket_list(infos)
+        return infos[0][0]
 
-    print("複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:", file=sys.stderr)
-    for i, (bid, last_event, hostname) in enumerate(bucket_info):
-        last_str: str = last_event.strftime("%Y-%m-%d %H:%M") if last_event else "データなし"
-        marker: str = " ← 使用" if i == 0 else ""
-        print(f"  {hostname}: 最終記録 {last_str}{marker}", file=sys.stderr)
-    print("最新のデータを持つバケットを自動選択しました。", file=sys.stderr)
-    print("特定のバケットを使う場合: --bucket=PC名", file=sys.stderr)
+    @classmethod
+    def _print_bucket_list(cls, infos: list[tuple[str, datetime | None, str]]) -> None:
+        print("複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:", file=sys.stderr)
+        for i, (_, last, hostname) in enumerate(infos):
+            last_str: str = last.strftime("%Y-%m-%d %H:%M") if last else "データなし"
+            marker: str = " ← 使用" if i == 0 else ""
+            print(f"  {hostname}: 最終記録 {last_str}{marker}", file=sys.stderr)
+        print("最新のデータを持つバケットを自動選択しました。", file=sys.stderr)
+        print("特定のバケットを使う場合: --bucket=PC名", file=sys.stderr)
 
-    _cached_bucket_id = bucket_info[0][0]
-    return _cached_bucket_id
-
-
-def _get_bucket_last_event(bucket_id: str) -> datetime | None:
-    """バケットの最新イベント日時を取得"""
-    url: str = f"{_API_BASE}/buckets/{bucket_id}/events?limit=1"
-    try:
-        with urllib.request.urlopen(url, timeout=5) as response:
-            events: list = json.loads(response.read().decode())
-            if events:
-                return datetime.fromisoformat(events[0]["timestamp"]).astimezone(_TIMEZONE)
-    except (urllib.error.URLError, KeyError, IndexError):
-        pass
-    return None
+    @classmethod
+    def _last_event(cls, bucket_id: str) -> datetime | None:
+        url: str = f"{_API_BASE}/buckets/{bucket_id}/events?limit=1"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                events: list = json.loads(resp.read().decode())
+                if events:
+                    return datetime.fromisoformat(events[0]["timestamp"]).astimezone(_TIMEZONE)
+        except (urllib.error.URLError, KeyError, IndexError):
+            pass
+        return None
 
 
 class MonthPeriod:
@@ -151,7 +161,7 @@ class MonthPeriod:
         now: datetime = datetime.now(_TIMEZONE)
         if month_str == "this":
             return now.year, now.month
-        elif month_str == "last":
+        if month_str == "last":
             return (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
         try:
             year, month = map(int, month_str.split("-"))
@@ -183,18 +193,16 @@ class AFKEvents:
 
     @classmethod
     def fetch(cls, start: str | None, end: str | None) -> "AFKEvents":
-        bucket_id: str = _get_afk_bucket_id()
-        url: str = f"{_API_BASE}/buckets/{bucket_id}/events"
+        url: str = f"{_API_BASE}/buckets/{AFKBucket.id()}/events"
         params: dict[str, str] = {"limit": "-1"}
         if start:
             params["start"] = start
         if end:
             params["end"] = end
         url += "?" + urllib.parse.urlencode(params)
-
         try:
-            with urllib.request.urlopen(url, timeout=30) as response:
-                return cls(json.loads(response.read().decode()))
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                return cls(json.loads(resp.read().decode()))
         except urllib.error.URLError as e:
             print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
             print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
@@ -206,10 +214,13 @@ class AFKEvents:
         return len(self._events)
 
     @property
+    def raw(self) -> list[dict]:
+        return self._events
+
+    @property
     def work_blocks(self) -> list[tuple[datetime, datetime]]:
         not_afk: list[dict] = sorted(
-            [e for e in self._events
-             if e["data"]["status"] == "not-afk" and e["duration"] >= 5],
+            [e for e in self._events if e["data"]["status"] == "not-afk" and e["duration"] >= 5],
             key=lambda e: e["timestamp"],
         )
         return self._extract_blocks(not_afk) if not_afk else []
@@ -218,23 +229,18 @@ class AFKEvents:
         blocks: list[tuple[datetime, datetime]] = []
         block_start: datetime | None = None
         block_end: datetime = datetime.min.replace(tzinfo=_TIMEZONE)
-
         for event in events:
-            event_start: datetime = datetime.fromisoformat(
-                event["timestamp"]
-            ).astimezone(_TIMEZONE)
-            event_end: datetime = event_start + timedelta(seconds=event["duration"])
-
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
+            end: datetime = start + timedelta(seconds=event["duration"])
             if block_start is None:
-                block_start, block_end = event_start, event_end
+                block_start, block_end = start, end
             else:
-                gap: float = (event_start - block_end).total_seconds()
-                if gap > _WORK_GAP_SECONDS and event_start.hour >= 5:
+                gap: float = (start - block_end).total_seconds()
+                if gap > _WORK_GAP_SECONDS and start.hour >= 5:
                     blocks.append((block_start, block_end))
-                    block_start, block_end = event_start, event_end
+                    block_start, block_end = start, end
                 else:
-                    block_end = max(block_end, event_end)
-
+                    block_end = max(block_end, end)
         if block_start is not None:
             blocks.append((block_start, block_end))
         return blocks
@@ -244,18 +250,14 @@ class DailyWork:
     """日ごとの勤務統計"""
 
     def __init__(self, events: list[dict]) -> None:
-        self._not_afk: list[dict] = [
-            e for e in events if e["data"]["status"] == "not-afk"
-        ]
+        self._not_afk: list[dict] = [e for e in events if e["data"]["status"] == "not-afk"]
 
     @property
     def active(self) -> dict[date, float]:
         result: dict[date, float] = {}
         for event in self._not_afk:
-            event_start: datetime = datetime.fromisoformat(
-                event["timestamp"]
-            ).astimezone(_TIMEZONE)
-            wd: date = self._work_date(event_start)
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
+            wd: date = self._work_date(start)
             result[wd] = result.get(wd, 0) + event["duration"]
         return result
 
@@ -264,10 +266,8 @@ class DailyWork:
         events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
         for event in self._not_afk:
             if event["duration"] < 5:
-                continue  # 5秒未満のイベント（ノイズ/ミス）を除外
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
-                _TIMEZONE
-            )
+                continue
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(_TIMEZONE)
             end: datetime = start + timedelta(seconds=event["duration"])
             wd: date = self._work_date(start)
             if wd not in events_by_day:
@@ -275,9 +275,7 @@ class DailyWork:
             events_by_day[wd].append((start, end))
         return self._calc_max_gaps(events_by_day)
 
-    def _calc_max_gaps(
-        self, events_by_day: dict[date, list[tuple[datetime, datetime]]]
-    ) -> dict[date, float]:
+    def _calc_max_gaps(self, events_by_day: dict[date, list[tuple[datetime, datetime]]]) -> dict[date, float]:
         result: dict[date, float] = {}
         for wd, events in events_by_day.items():
             sorted_events: list[tuple[datetime, datetime]] = sorted(events)
@@ -305,9 +303,9 @@ class HolidayCalendar:
         self._holidays: dict[int, set[date]] = {}
 
     def is_holiday(self, d: date) -> bool:
-        return d.weekday() >= 5 or self._is_national_holiday(d)
+        return d.weekday() >= 5 or self._is_national(d)
 
-    def _is_national_holiday(self, d: date) -> bool:
+    def _is_national(self, d: date) -> bool:
         if d.year not in self._holidays:
             self._load_year(d.year)
         return d in self._holidays.get(d.year, set())
@@ -321,8 +319,7 @@ class HolidayCalendar:
 
     def _parse_cache(self, cache_file: Path) -> set[date]:
         with open(cache_file, encoding="utf-8") as f:
-            data: dict[str, str] = json.load(f)
-        return {date.fromisoformat(d) for d in data.keys()}
+            return {date.fromisoformat(d) for d in json.load(f).keys()}
 
     def _fetch_and_cache(self, year: int, cache_file: Path) -> set[date]:
         url: str = self._API_URL.format(year=year)
@@ -330,13 +327,13 @@ class HolidayCalendar:
             ctx: ssl.SSLContext = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(url, timeout=10, context=ctx) as response:
-                raw: bytes = response.read()
-                data: dict[str, str] = json.loads(raw.decode("utf-8"))
+            with urllib.request.urlopen(url, timeout=10, context=ctx) as resp:
+                raw: bytes = resp.read()
+                holidays: dict[str, str] = json.loads(raw.decode("utf-8"))
             self._cache_dir.mkdir(exist_ok=True)
             with open(cache_file, "w", encoding="utf-8") as f:
                 f.write(raw.decode("utf-8") + "\n")
-            return {date.fromisoformat(d) for d in data.keys()}
+            return {date.fromisoformat(d) for d in holidays.keys()}
         except urllib.error.URLError:
             return set()
 
@@ -344,36 +341,24 @@ class HolidayCalendar:
 class WorkCalendar:
     """勤務カレンダー"""
 
-    def __init__(
-        self,
-        daily: dict[date, tuple[datetime, datetime]],
-        active: dict[date, float],
-        max_gap: dict[date, float],
-    ) -> None:
+    def __init__(self, daily: dict[date, tuple[datetime, datetime]]) -> None:
         self._daily: dict[date, tuple[datetime, datetime]] = daily
-        self._active: dict[date, float] = active
-        self._max_gap: dict[date, float] = max_gap
 
     @classmethod
-    def from_blocks(
-        cls,
-        blocks: list[tuple[datetime, datetime]],
-        active: dict[date, float],
-        max_gap: dict[date, float],
-    ) -> "WorkCalendar":
+    def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
         daily: dict[date, tuple[datetime, datetime]] = {}
         for block_start, block_end in blocks:
-            work_date: date = (
-                (block_start - timedelta(days=1)).date()
-                if 0 <= block_start.hour < 5
-                else block_start.date()
-            )
-            if work_date not in daily:
-                daily[work_date] = (block_start, block_end)
+            wd: date = cls._work_date(block_start)
+            if wd not in daily:
+                daily[wd] = (block_start, block_end)
             else:
-                s, e = daily[work_date]
-                daily[work_date] = (min(block_start, s), max(block_end, e))
-        return cls(daily, active, max_gap)
+                s, e = daily[wd]
+                daily[wd] = (min(block_start, s), max(block_end, e))
+        return cls(daily)
+
+    @classmethod
+    def _work_date(cls, dt: datetime) -> date:
+        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
 
     @property
     def days(self) -> int:
@@ -400,9 +385,7 @@ class WorkCSV:
         self._period: MonthPeriod = period
 
     def content(self) -> str:
-        lines: list[str] = [
-            "date,weekday,start_time,end_time,duration_hours,afk_hours,max_gap_hours"
-        ]
+        lines: list[str] = ["date,weekday,start_time,end_time,duration_hours,afk_hours,max_gap_hours"]
         for d in self._date_range():
             lines.append(self._row(d))
         return "\n".join(lines) + "\n"
@@ -429,10 +412,7 @@ class WorkCSV:
         active: float = self._active.get(d, 0) / 3600
         afk: float = span - active
         max_gap: float = self._max_gap.get(d, 0) / 3600
-        return (
-            f'{prefix},="{self._time(start, d)}",="{self._time(end, d)}",'
-            f"{span:.2f},{afk:.2f},{max_gap:.2f}"
-        )
+        return f'{prefix},="{self._time(start, d)}",="{self._time(end, d)}",{span:.2f},{afk:.2f},{max_gap:.2f}'
 
     def _time(self, dt: datetime, base: date) -> str:
         hour: int = dt.hour + ((dt.date() - base).days * 24)
@@ -462,14 +442,12 @@ class WorkText:
         today: date = datetime.now(_TIMEZONE).date()
         start_date, end_date = self._period.dates
         if start_date and end_date:
-            start: date = start_date
-            end: date = min(end_date, today + timedelta(days=1))
+            start, end = start_date, min(end_date, today + timedelta(days=1))
         elif self._daily:
             start = min(self._daily.keys())
             end = max(self._daily.keys()) + timedelta(days=1)
         else:
             return ""
-
         lines: list[str] = []
         current: date = start
         while current < end:
@@ -485,6 +463,9 @@ class WorkText:
         prefix: str = f'{d.strftime("%Y-%m-%d")} {weekday}{holiday_mark}'
         if not has_work:
             return prefix
+        return self._format_work_day(d, prefix, is_holiday)
+
+    def _format_work_day(self, d: date, prefix: str, is_holiday: bool) -> str:
         s, e = self._daily[d]
         span: float = (e - s).total_seconds() / 3600
         if round(span, 1) == 0:
@@ -492,9 +473,7 @@ class WorkText:
         active: float = self._active.get(d, 0) / 3600
         afk: float = span - active
         spacing: str = "  " if is_holiday else "   "
-        base: str = (
-            f"{prefix}{spacing}{self._time(s, d)} - {self._time(e, d)}   ({span:.1f}h)"
-        )
+        base: str = f"{prefix}{spacing}{self._time(s, d)} - {self._time(e, d)}   ({span:.1f}h)"
         if afk < 0.05:
             return base
         max_gap: float = self._max_gap.get(d, 0) / 3600
@@ -506,60 +485,76 @@ class WorkText:
         return f"{hour:02d}{sep}{dt.minute:02d}"
 
 
-class WorkHTML:
-    """HTML出力（JavaScript駆動）"""
+class WorkHTMLTemplate:
+    """HTML出力テンプレート"""
 
-    def __init__(self, no_colon: bool = False, init_month: str | None = None) -> None:
-        self._no_colon: bool = no_colon
-        self._init_month: str | None = init_month
+    @classmethod
+    def render(cls, no_colon: bool, init_month: str | None) -> str:
+        no_colon_js: str = "true" if no_colon else "false"
+        init_month_js: str = f"'{init_month}'" if init_month else "null"
+        return cls._html(no_colon_js, init_month_js)
 
-    def content(self) -> str:
-        no_colon_js: str = "true" if self._no_colon else "false"
-        init_month_js: str = f"'{self._init_month}'" if self._init_month else "null"
+    @classmethod
+    def _html(cls, no_colon_js: str, init_month_js: str) -> str:
         return f'''<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <title>Work Hours</title>
-<style>
-body {{ font-family: monospace; margin: 20px; background: #fafafa; }}
-.controls {{ margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }}
-.controls button {{ padding: 5px 15px; cursor: pointer; }}
-.controls input[type="month"] {{ padding: 5px; width: 100px; font-family: monospace; }}
-.controls input[type="checkbox"] {{ width: auto; }}
-.status {{ color: #888; margin-left: 10px; }}
-table {{ border-collapse: collapse; width: 100%; }}
-td {{ padding: 2px 4px; vertical-align: middle; }}
-td.date {{ white-space: nowrap; }}
-td.time {{ white-space: nowrap; text-align: right; }}
-td.dur {{ white-space: nowrap; text-align: right; }}
-td.afk {{ white-space: nowrap; text-align: right; color: #888; }}
-td.timeline-cell {{ width: 100%; }}
-.holiday {{ color: #e57373; }}
-.timeline {{ position: relative; height: 18px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; }}
-.event {{ position: absolute; height: 100%; background: #a5d6a7; cursor: pointer; min-width: 2px; border-radius: 3px; }}
-.event:hover {{ background: #81c784; }}
-.tooltip {{ display: none; position: absolute; background: #fffde7; border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px; white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15); border-radius: 4px; }}
-.tooltip-row {{ margin: 2px 0; }}
-.tooltip-label {{ font-weight: bold; display: inline-block; width: 60px; }}
-.hour-marks {{ position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }}
-.hour-mark {{ position: absolute; top: 0; bottom: 0; border-left: 1px solid #e0e0e0; }}
-.hour-labels td {{ font-size: 11px; color: #888; padding: 0 4px 4px 4px; }}
-.hour-labels td div {{ display: flex; }}
-.hour-labels td div span {{ flex: 1; text-align: left; }}
-</style>
+{cls._css()}
 </head>
 <body>
 <h2>Work Hours - Active Time Visualization</h2>
-<div class="controls">
+{cls._controls()}
+<table id="table"></table>
+{cls._script(no_colon_js, init_month_js)}
+</body>
+</html>
+'''
+
+    @classmethod
+    def _css(cls) -> str:
+        return '''<style>
+body { font-family: monospace; margin: 20px; background: #fafafa; }
+.controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+.controls button { padding: 5px 15px; cursor: pointer; }
+.controls input[type="month"] { padding: 5px; width: 100px; font-family: monospace; }
+.controls input[type="checkbox"] { width: auto; }
+.status { color: #888; margin-left: 10px; }
+table { border-collapse: collapse; width: 100%; }
+td { padding: 2px 4px; vertical-align: middle; }
+td.date { white-space: nowrap; }
+td.time { white-space: nowrap; text-align: right; }
+td.dur { white-space: nowrap; text-align: right; }
+td.afk { white-space: nowrap; text-align: right; color: #888; }
+td.timeline-cell { width: 100%; }
+.holiday { color: #e57373; }
+.timeline { position: relative; height: 18px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; }
+.event { position: absolute; height: 100%; background: #a5d6a7; cursor: pointer; min-width: 2px; border-radius: 3px; }
+.event:hover { background: #81c784; }
+.tooltip { display: none; position: absolute; background: #fffde7; border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px; white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15); border-radius: 4px; }
+.tooltip-row { margin: 2px 0; }
+.tooltip-label { font-weight: bold; display: inline-block; width: 60px; }
+.hour-marks { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
+.hour-mark { position: absolute; top: 0; bottom: 0; border-left: 1px solid #e0e0e0; }
+.hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }
+.hour-labels td div { display: flex; }
+.hour-labels td div span { flex: 1; text-align: left; }
+</style>'''
+
+    @classmethod
+    def _controls(cls) -> str:
+        return '''<div class="controls">
 <button id="prev">&lt; 前月</button>
 <input type="month" id="month">
 <button id="next">次月 &gt;</button>
 <label style="margin-left: 15px; cursor: pointer;"><input type="checkbox" id="noColon" style="margin-right: 4px;">コロンなし</label>
 <span class="status" id="status"></span>
-</div>
-<table id="table"></table>
-<script>
+</div>'''
+
+    @classmethod
+    def _script(cls, no_colon_js: str, init_month_js: str) -> str:
+        return f'''<script>
 const INIT_NO_COLON = {no_colon_js};
 const INIT_MONTH = {init_month_js};
 let noColon = INIT_NO_COLON;
@@ -572,7 +567,6 @@ function formatTime(h, m) {{
 async function loadMonth(ym) {{
     const status = document.getElementById('status');
     status.textContent = '読み込み中...';
-
     let data;
     try {{
         const res = await fetch(`/data/${{ym}}`);
@@ -581,7 +575,6 @@ async function loadMonth(ym) {{
         status.textContent = 'エラー: データを取得できません';
         return;
     }}
-
     status.textContent = `勤務: ${{data.rows.filter(r => r.hasWork).length}}日`;
     render(data.rows);
 }}
@@ -597,23 +590,17 @@ function render(rows) {{
     let html = '<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>';
     for (let h = 0; h < 24; h += 4) html += `<span>${{String(h).padStart(2,'0')}}:00</span>`;
     html += '</div></td></tr>';
-
     for (const row of rows) {{
         const holClass = row.holiday ? ' class="holiday"' : '';
         const holMark = row.holiday ? '*' : '';
         const dateCol = `${{row.date}} ${{row.weekday}}${{holMark}}`;
-
         let timeCol = '', durCol = '', afkCol = '';
         if (row.hasWork) {{
             timeCol = `${{formatTime(row.startH, row.startM)}} - ${{formatTime(row.endH, row.endM)}}`;
             durCol = `(${{row.span.toFixed(1)}}h)`;
-            if (row.afk !== undefined) {{
-                afkCol = `-${{row.afk.toFixed(1)}}h (max:-${{row.maxGap.toFixed(1)}}h)`;
-            }}
+            if (row.afk !== undefined) afkCol = `-${{row.afk.toFixed(1)}}h (max:-${{row.maxGap.toFixed(1)}}h)`;
         }}
-
         const hourMarks = [4,8,12,16,20].map(h => `<div class="hour-mark" style="left:${{(h/24)*100}}%"></div>`).join('');
-
         let eventBars = '';
         for (const ev of row.events || []) {{
             const startSec = ev.startH * 3600 + ev.startM * 60 + ev.startS;
@@ -630,13 +617,9 @@ function render(rows) {{
 <div class="tooltip-row"><span class="tooltip-label">Data</span>${{JSON.stringify(ev.data)}}</div>
 </div></div>`;
         }}
-
         html += `<tr${{holClass}}><td class="date">${{dateCol}}</td><td class="time">${{timeCol}}</td><td class="dur">${{durCol}}</td><td class="afk">${{afkCol}}</td><td class="timeline-cell"><div class="timeline"><div class="hour-marks">${{hourMarks}}</div>${{eventBars}}</div></td></tr>`;
     }}
-
     table.innerHTML = html;
-
-    // Add tooltip handlers
     document.querySelectorAll('.event').forEach(el => {{
         const tooltip = el.querySelector('.tooltip');
         el.addEventListener('mouseenter', () => {{
@@ -645,10 +628,7 @@ function render(rows) {{
             tooltip.style.left = '0px';
             tooltip.style.right = 'auto';
             const rect = tooltip.getBoundingClientRect();
-            if (rect.right > window.innerWidth) {{
-                tooltip.style.left = 'auto';
-                tooltip.style.right = '0px';
-            }}
+            if (rect.right > window.innerWidth) {{ tooltip.style.left = 'auto'; tooltip.style.right = '0px'; }}
         }});
         el.addEventListener('mouseleave', () => tooltip.style.display = 'none');
     }});
@@ -670,275 +650,325 @@ document.getElementById('noColon').addEventListener('change', e => {{
     loadMonth(document.getElementById('month').value);
 }});
 
-// Initialize
 const now = new Date();
 const initMonth = INIT_MONTH || `${{now.getFullYear()}}-${{String(now.getMonth() + 1).padStart(2, '0')}}`;
 document.getElementById('month').value = initMonth;
 document.getElementById('noColon').checked = INIT_NO_COLON;
 loadMonth(initMonth);
-</script>
-</body>
-</html>
-'''
+</script>'''
 
 
-class CLI:
-    """コマンドラインインターフェース"""
+class WorkHTMLRow:
+    """HTML用の日別行データ"""
 
-    def run(self) -> None:
-        args: argparse.Namespace = self._args()
-        _set_bucket_preference(args.bucket)
+    def __init__(self, d: date, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar) -> None:
+        self._date: date = d
+        self._calendar: WorkCalendar = calendar
+        self._daily_work: DailyWork = daily_work
+        self._holidays: HolidayCalendar = holidays
+        self._events: list[dict] = []
 
-        if args.html:
-            init_month: str | None = None
-            if args.month not in ("this", "all"):
-                if args.month == "last":
-                    now = datetime.now(_TIMEZONE)
-                    y, m = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
-                    init_month = f"{y}-{m:02d}"
-                else:
-                    init_month = args.month
-            self._serve_html(args.no_colon, init_month, args.quiet)
-            return
+    def add_event(self, start: datetime, end: datetime, event: dict) -> None:
+        self._add_event_segment(start, end, event)
 
-        period: MonthPeriod = MonthPeriod.parse(args.month)
-        labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
+    def _add_event_segment(self, start: datetime, end: datetime, event: dict) -> None:
+        current: date = start.date()
+        while current <= end.date():
+            if current == self._date:
+                day_start: datetime = max(start, datetime.combine(current, datetime.min.time()).replace(tzinfo=_TIMEZONE))
+                day_end_limit: datetime = datetime.combine(current + timedelta(days=1), datetime.min.time()).replace(tzinfo=_TIMEZONE)
+                day_end: datetime = min(end, day_end_limit)
+                if day_end > day_start:
+                    self._events.append(self._event_dict(day_start, day_end, current, event))
+            current += timedelta(days=1)
 
-        self._status(f"対象期間: {labels.get(args.month, args.month)}", args.quiet)
-        self._status("ActivityWatchからデータを取得中...", args.quiet)
+    def _event_dict(self, start: datetime, end: datetime, current: date, event: dict) -> dict:
+        return {
+            "startH": start.hour, "startM": start.minute, "startS": start.second,
+            "endH": end.hour if end.date() == current else 24,
+            "endM": end.minute if end.date() == current else 0,
+            "endS": end.second if end.date() == current else 0,
+            "duration": (end - start).total_seconds(),
+            "data": event["data"],
+        }
 
-        start_iso, end_iso = period.iso
-        events: AFKEvents = AFKEvents.fetch(start_iso, end_iso)
-        self._status(f"取得イベント数: {events.count}", args.quiet)
+    def to_dict(self) -> dict:
+        d: date = self._date
+        has_work: bool = d in self._calendar.daily
+        is_holiday: bool = has_work and self._holidays.is_holiday(d)
+        row: dict = {"date": d.isoformat(), "weekday": _WEEKDAYS[d.weekday()], "holiday": is_holiday, "hasWork": has_work}
+        if has_work:
+            self._add_work_fields(row, d)
+        row["events"] = self._events
+        return row
 
-        daily_work: DailyWork = DailyWork(events._events)
-        calendar: WorkCalendar = WorkCalendar.from_blocks(
-            events.work_blocks, daily_work.active, daily_work.gaps
-        )
-        self._status(f"勤務日数: {calendar.days}", args.quiet)
+    def _add_work_fields(self, row: dict, d: date) -> None:
+        s, e = self._calendar.daily[d]
+        span: float = (e - s).total_seconds() / 3600
+        row["startH"], row["startM"] = s.hour + ((s.date() - d).days * 24), s.minute
+        row["endH"], row["endM"] = e.hour + ((e.date() - d).days * 24), e.minute
+        row["span"] = round(span, 1)
+        active_h: float = self._daily_work.active.get(d, 0) / 3600
+        afk: float = span - active_h
+        if afk >= 0.05:
+            row["afk"] = round(afk, 1)
+            row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
 
-        self._output(calendar, daily_work, period, events, args)
 
-    def _args(self) -> argparse.Namespace:
-        p: argparse.ArgumentParser = argparse.ArgumentParser(
-            description="ActivityWatchから勤務時間をCSVにエクスポート",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="例:\n  aw-work-hours                    今月の勤務時間を出力\n"
-            "  aw-work-hours --month=last       先月の勤務時間を出力\n"
-            "  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力\n"
-            "  aw-work-hours --month=all        全期間の勤務時間を出力\n"
-            "  aw-work-hours -o work.csv        ファイルに出力",
-        )
-        p.add_argument(
-            "--month",
-            "-m",
-            default="this",
-            help="対象月: this(今月), last(先月), all(全期間), YYYY-MM",
-        )
-        p.add_argument("--output", "-o", help="出力ファイル名")
-        p.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
-        p.add_argument(
-            "--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）"
-        )
-        p.add_argument("--html", action="store_true", help="HTML形式でブラウザ表示")
-        p.add_argument(
-            "--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）"
-        )
-        return p.parse_args()
+class WorkHTMLResponse:
+    """HTML APIレスポンス生成"""
+
+    def __init__(self, period: MonthPeriod) -> None:
+        self._period: MonthPeriod = period
+
+    def json(self) -> dict:
+        events: AFKEvents = AFKEvents.fetch(*self._period.iso)
+        daily_work: DailyWork = DailyWork(events.raw)
+        calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
+        holidays: HolidayCalendar = HolidayCalendar()
+        rows: list[WorkHTMLRow] = self._create_rows(calendar, daily_work, holidays)
+        self._populate_events(rows, events)
+        return {"rows": [r.to_dict() for r in rows]}
+
+    def _create_rows(self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar) -> list[WorkHTMLRow]:
+        rows: list[WorkHTMLRow] = []
+        today: date = datetime.now(_TIMEZONE).date()
+        start_date, end_date = self._period.dates
+        if not (start_date and end_date):
+            return []
+        current: date = start_date
+        end: date = min(end_date, today + timedelta(days=1))
+        while current < end:
+            rows.append(WorkHTMLRow(current, calendar, daily_work, holidays))
+            current += timedelta(days=1)
+        return rows
+
+    def _populate_events(self, rows: list[WorkHTMLRow], events: AFKEvents) -> None:
+        not_afk: list[dict] = [e for e in events.raw if e["data"]["status"] == "not-afk" and e["duration"] >= 5]
+        for ev in not_afk:
+            start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(_TIMEZONE)
+            end: datetime = start + timedelta(seconds=ev["duration"])
+            for row in rows:
+                row.add_event(start, end, ev)
+
+
+class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTPリクエストハンドラ"""
+
+    directory: str = ""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, directory=self.directory, **kwargs)
+
+    def log_message(self, format: str, *args) -> None:
+        pass
+
+    def do_GET(self) -> None:
+        if self.path.startswith("/data/"):
+            self._handle_data()
+        elif self.path.startswith("/api/"):
+            self._proxy_api()
+        else:
+            super().do_GET()
+
+    def _handle_data(self) -> None:
+        try:
+            month_str: str = self.path.split("/")[-1]
+            period: MonthPeriod = MonthPeriod.parse(month_str)
+            response: WorkHTMLResponse = WorkHTMLResponse(period)
+            body: bytes = json.dumps(response.json(), ensure_ascii=False).encode("utf-8")
+            self._send_json(body)
+        except Exception as e:
+            self.send_error(500, f"Error: {e}")
+
+    def _send_json(self, body: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", len(body))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _proxy_api(self) -> None:
+        url: str = f"http://127.0.0.1:5600{self.path}"
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                body: bytes = resp.read()
+                self._send_json(body)
+        except Exception as e:
+            self.send_error(502, f"API Error: {e}")
+
+
+class WorkHTTPServer:
+    """HTTPサーバー"""
+
+    def __init__(self, port: int = 8600) -> None:
+        self._port: int = port
+        self._html_dir: str = tempfile.gettempdir()
+
+    def start(self, no_colon: bool, init_month: str | None, quiet: bool) -> None:
+        html_path: Path = Path(self._html_dir) / "aw-work-hours.html"
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(WorkHTMLTemplate.render(no_colon, init_month))
+        self._status(f"HTML出力: {html_path}", quiet)
+        if not self._is_port_in_use():
+            self._start_server(quiet)
+        else:
+            self._status(f"サーバーは既に起動中 (port {self._port})", quiet)
+        self._open_browser(quiet)
+
+    def _is_port_in_use(self) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("localhost", self._port)) == 0
+
+    def _start_server(self, quiet: bool) -> None:
+        WorkHTTPHandler.directory = self._html_dir
+        def serve() -> None:
+            with http.server.HTTPServer(("", self._port), WorkHTTPHandler) as httpd:
+                httpd.serve_forever()
+        threading.Thread(target=serve, daemon=True).start()
+        self._status(f"サーバー起動: http://localhost:{self._port}/", quiet)
+
+    def _open_browser(self, quiet: bool) -> None:
+        import time
+        url: str = f"http://localhost:{self._port}/aw-work-hours.html"
+        self._status(f"ブラウザで開きます: {url}", quiet)
+        subprocess.run(["open", url], check=False)
+        self._status("Ctrl+C で終了", quiet)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self._status("\n終了します", quiet)
 
     def _status(self, msg: str, quiet: bool) -> None:
         if not quiet:
             print(msg, file=sys.stderr)
 
-    def _serve_html(self, no_colon: bool, init_month: str | None, quiet: bool) -> None:
-        import tempfile
-        port: int = 8600
-        html_dir: str = tempfile.gettempdir()
-        html_path: Path = Path(html_dir) / "aw-work-hours.html"
 
-        html: WorkHTML = WorkHTML(no_colon, init_month)
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html.content())
-        self._status(f"HTML出力: {html_path}", quiet)
+class CLIArgs:
+    """コマンドライン引数"""
 
-        if not self._is_port_in_use(port):
-            self._start_server(html_dir, port, quiet)
-        else:
-            self._status(f"サーバーは既に起動中 (port {port})", quiet)
+    def __init__(self) -> None:
+        self._args: argparse.Namespace = self._parse()
 
-        url: str = f"http://localhost:{port}/aw-work-hours.html"
-        self._status(f"ブラウザで開きます: {url}", quiet)
-        subprocess.run(["open", url], check=False)
+    def _parse(self) -> argparse.Namespace:
+        p: argparse.ArgumentParser = argparse.ArgumentParser(
+            description="ActivityWatchから勤務時間をCSVにエクスポート",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=self._epilog(),
+        )
+        p.add_argument("--month", "-m", default="this", help="対象月: this(今月), last(先月), all(全期間), YYYY-MM")
+        p.add_argument("--output", "-o", help="出力ファイル名")
+        p.add_argument("--quiet", "-q", action="store_true", help="進捗非表示")
+        p.add_argument("--no-colon", action="store_true", help="時刻をHHMMで出力（stdout時のみ）")
+        p.add_argument("--html", action="store_true", help="HTML形式でブラウザ表示")
+        p.add_argument("--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）")
+        return p.parse_args()
 
-        self._status("Ctrl+C で終了", quiet)
-        try:
-            while True:
-                import time
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self._status("\n終了します", quiet)
+    def _epilog(self) -> str:
+        return ("例:\n  aw-work-hours                    今月の勤務時間を出力\n"
+                "  aw-work-hours --month=last       先月の勤務時間を出力\n"
+                "  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力\n"
+                "  aw-work-hours --month=all        全期間の勤務時間を出力\n"
+                "  aw-work-hours -o work.csv        ファイルに出力")
 
-    def _is_port_in_use(self, port: int) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(("localhost", port)) == 0
+    @property
+    def month(self) -> str:
+        return self._args.month
 
-    def _start_server(self, directory: str, port: int, quiet: bool) -> None:
-        class ProxyHandler(http.server.SimpleHTTPRequestHandler):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, directory=directory, **kwargs)
+    @property
+    def output(self) -> str | None:
+        return self._args.output
 
-            def log_message(self, format, *args):
-                pass  # suppress logs
+    @property
+    def quiet(self) -> bool:
+        return self._args.quiet
 
-            def do_GET(self):
-                if self.path.startswith("/data/"):
-                    self._compute_data()
-                elif self.path.startswith("/api/"):
-                    self._proxy_api()
-                else:
-                    super().do_GET()
+    @property
+    def no_colon(self) -> bool:
+        return self._args.no_colon
 
-            def _compute_data(self):
-                try:
-                    month_str = self.path.split("/")[-1]
-                    data = self._get_month_data(month_str)
-                    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.send_header("Content-Length", len(body))
-                    self.end_headers()
-                    self.wfile.write(body)
-                except Exception as e:
-                    self.send_error(500, f"Error: {e}")
+    @property
+    def html(self) -> bool:
+        return self._args.html
 
-            def _get_month_data(self, month_str: str) -> dict:
-                period = MonthPeriod.parse(month_str)
-                start_iso, end_iso = period.iso
-                events = AFKEvents.fetch(start_iso, end_iso)
-                daily_work = DailyWork(events._events)
-                calendar = WorkCalendar.from_blocks(
-                    events.work_blocks, daily_work.active, daily_work.gaps
-                )
-                holidays = HolidayCalendar()
+    @property
+    def bucket(self) -> str | None:
+        return self._args.bucket
 
-                # イベントを日ごとに分類（24時超えは分割）
-                events_by_day: dict[date, list] = {}
-                not_afk = [e for e in events._events if e["data"]["status"] == "not-afk" and e["duration"] >= 5]
-                for ev in not_afk:
-                    ev_start = datetime.fromisoformat(ev["timestamp"]).astimezone(_TIMEZONE)
-                    ev_end = ev_start + timedelta(seconds=ev["duration"])
-                    self._add_event_to_days(events_by_day, ev_start, ev_end, ev)
 
-                rows = []
-                today = datetime.now(_TIMEZONE).date()
-                start_date, end_date = period.dates
-                if start_date and end_date:
-                    current = start_date
-                    end = min(end_date, today + timedelta(days=1))
-                else:
-                    return {"rows": []}
+class CLIOutput:
+    """CLI出力処理"""
 
-                while current < end:
-                    row = self._make_row(current, calendar.daily, daily_work.active, daily_work.gaps, holidays, events_by_day.get(current, []))
-                    rows.append(row)
-                    current += timedelta(days=1)
+    def __init__(self, args: CLIArgs) -> None:
+        self._args: CLIArgs = args
 
-                return {"rows": rows}
-
-            def _add_event_to_days(self, events_by_day: dict, start: datetime, end: datetime, event: dict) -> None:
-                current_date = start.date()
-                while current_date <= end.date():
-                    day_start = max(start, datetime.combine(current_date, datetime.min.time()).replace(tzinfo=_TIMEZONE))
-                    day_end_limit = datetime.combine(current_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=_TIMEZONE)
-                    day_end = min(end, day_end_limit)
-                    if day_end > day_start:
-                        if current_date not in events_by_day:
-                            events_by_day[current_date] = []
-                        events_by_day[current_date].append({
-                            "startH": day_start.hour,
-                            "startM": day_start.minute,
-                            "startS": day_start.second,
-                            "endH": day_end.hour if day_end.date() == current_date else 24,
-                            "endM": day_end.minute if day_end.date() == current_date else 0,
-                            "endS": day_end.second if day_end.date() == current_date else 0,
-                            "duration": (day_end - day_start).total_seconds(),
-                            "data": event["data"],
-                        })
-                    current_date += timedelta(days=1)
-
-            def _make_row(self, d: date, daily: dict, active: dict, max_gap: dict, holidays: HolidayCalendar, events: list) -> dict:
-                weekday = _WEEKDAYS[d.weekday()]
-                has_work = d in daily
-                is_holiday = has_work and holidays.is_holiday(d)
-
-                row = {
-                    "date": d.isoformat(),
-                    "weekday": weekday,
-                    "holiday": is_holiday,
-                    "hasWork": has_work,
-                }
-
-                if has_work:
-                    s, e = daily[d]
-                    span = (e - s).total_seconds() / 3600
-                    sh = s.hour + ((s.date() - d).days * 24)
-                    eh = e.hour + ((e.date() - d).days * 24)
-                    row["startH"], row["startM"] = sh, s.minute
-                    row["endH"], row["endM"] = eh, e.minute
-                    row["span"] = round(span, 1)
-
-                    active_h = active.get(d, 0) / 3600
-                    afk = span - active_h
-                    if afk >= 0.05:
-                        row["afk"] = round(afk, 1)
-                        row["maxGap"] = round(max_gap.get(d, 0) / 3600, 1)
-
-                row["events"] = events
-                return row
-
-            def _proxy_api(self):
-                api_url = f"http://127.0.0.1:5600{self.path}"
-                try:
-                    with urllib.request.urlopen(api_url, timeout=30) as resp:
-                        data = resp.read()
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/json")
-                        self.send_header("Content-Length", len(data))
-                        self.end_headers()
-                        self.wfile.write(data)
-                except Exception as e:
-                    self.send_error(502, f"API Error: {e}")
-
-        def serve() -> None:
-            with http.server.HTTPServer(("", port), ProxyHandler) as httpd:
-                httpd.serve_forever()
-
-        thread = threading.Thread(target=serve, daemon=True)
-        thread.start()
-        self._status(f"サーバー起動: http://localhost:{port}/", quiet)
-
-    def _output(
-        self,
-        calendar: WorkCalendar,
-        daily_work: DailyWork,
-        period: MonthPeriod,
-        events: AFKEvents,
-        args: argparse.Namespace,
-    ) -> None:
+    def run(self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod) -> None:
         holidays: HolidayCalendar = HolidayCalendar()
-        if args.output:
-            csv: WorkCSV = WorkCSV(
-                calendar.daily, daily_work.active, daily_work.gaps, period
-            )
-            with open(args.output, "w", encoding="utf-8-sig") as f:
-                f.write(csv.content())
-            self._status(f"出力完了: {args.output}", args.quiet)
+        if self._args.output:
+            self._write_csv(calendar, daily_work, period)
         else:
-            text: WorkText = WorkText(
-                calendar.daily, daily_work.active, daily_work.gaps, period, holidays, args.no_colon
-            )
-            print(text.content(), end="")
+            self._print_text(calendar, daily_work, period, holidays)
+
+    def _write_csv(self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod) -> None:
+        csv: WorkCSV = WorkCSV(calendar.daily, daily_work.active, daily_work.gaps, period)
+        with open(self._args.output, "w", encoding="utf-8-sig") as f:
+            f.write(csv.content())
+        self._status(f"出力完了: {self._args.output}")
+
+    def _print_text(self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod, holidays: HolidayCalendar) -> None:
+        text: WorkText = WorkText(calendar.daily, daily_work.active, daily_work.gaps, period, holidays, self._args.no_colon)
+        print(text.content(), end="")
+
+    def _status(self, msg: str) -> None:
+        if not self._args.quiet:
+            print(msg, file=sys.stderr)
+
+
+class CLIMain:
+    """メインCLI処理"""
+
+    def __init__(self) -> None:
+        self._args: CLIArgs = CLIArgs()
+
+    def run(self) -> None:
+        AFKBucket.set_preference(self._args.bucket)
+        if self._args.html:
+            self._run_html()
+        else:
+            self._run_text()
+
+    def _run_html(self) -> None:
+        init_month: str | None = self._resolve_init_month()
+        server: WorkHTTPServer = WorkHTTPServer()
+        server.start(self._args.no_colon, init_month, self._args.quiet)
+
+    def _resolve_init_month(self) -> str | None:
+        if self._args.month in ("this", "all"):
+            return None
+        if self._args.month == "last":
+            now: datetime = datetime.now(_TIMEZONE)
+            y, m = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+            return f"{y}-{m:02d}"
+        return self._args.month
+
+    def _run_text(self) -> None:
+        period: MonthPeriod = MonthPeriod.parse(self._args.month)
+        labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
+        self._status(f"対象期間: {labels.get(self._args.month, self._args.month)}")
+        self._status("ActivityWatchからデータを取得中...")
+        events: AFKEvents = AFKEvents.fetch(*period.iso)
+        self._status(f"取得イベント数: {events.count}")
+        daily_work: DailyWork = DailyWork(events.raw)
+        calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
+        self._status(f"勤務日数: {calendar.days}")
+        output: CLIOutput = CLIOutput(self._args)
+        output.run(calendar, daily_work, period)
+
+    def _status(self, msg: str) -> None:
+        if not self._args.quiet:
+            print(msg, file=sys.stderr)
 
 
 if __name__ == "__main__":
-    CLI().run()
+    CLIMain().run()
