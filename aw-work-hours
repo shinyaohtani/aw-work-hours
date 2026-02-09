@@ -32,9 +32,7 @@ from typing import TypedDict
 from zoneinfo import ZoneInfo
 
 
-# ============================================================
-#  TYPES — 定数・例外・型定義
-# ============================================================
+# MARK: - TYPES — 定数・例外・型定義
 
 _API_BASE: str = "http://127.0.0.1:5600/api/0"
 _TIMEZONE: ZoneInfo = ZoneInfo("Asia/Tokyo")
@@ -70,8 +68,7 @@ class HTMLEvent(TypedDict):
     data: dict[str, str]
 
 
-# ============================================================
-#  DOMAIN — ドメインロジック（勤務判定・集計）
+# MARK: - DOMAIN — ドメインロジック（勤務判定・集計）
 #
 #  公開API:
 #    WorkRule       — 勤務日判定ルール (work_date / adjusted_hour 等)
@@ -82,7 +79,9 @@ class HTMLEvent(TypedDict):
 #    DailyWork      — 日ごとの勤務統計 (active時間・最大gap)
 #    WorkCalendar   — 勤務カレンダー (from_period が計算入口)
 #  依存: ActivityWatch API, holidays-jp API
-# ============================================================
+
+
+# MARK: WorkRule
 
 
 class WorkRule:
@@ -118,6 +117,9 @@ class WorkRule:
     def span_hours(start: datetime, end: datetime) -> float:
         """時間幅（時間単位）"""
         return (end - start).total_seconds() / 3600
+
+
+# MARK: MonthPeriod
 
 
 class MonthPeriod:
@@ -168,6 +170,9 @@ class MonthPeriod:
             result.append(current)
             current += timedelta(days=1)
         return result
+
+
+# MARK: AFKBucket
 
 
 class AFKBucketCandidates:
@@ -283,6 +288,9 @@ class AFKBucket:
         return candidates.selected
 
 
+# MARK: AFKEvents
+
+
 class AFKEvents:
     """ActivityWatchのAFKイベント"""
 
@@ -347,6 +355,9 @@ class AFKEvents:
         return blocks
 
 
+# MARK: HolidayCalendar
+
+
 class HolidayCalendar:
     """日本の祝日カレンダー（キャッシュ付き）"""
 
@@ -391,6 +402,9 @@ class HolidayCalendar:
         except urllib.error.URLError:
             # 祝日API接続失敗は致命的でないため空を返す（表示上の差異のみ）
             return set()
+
+
+# MARK: DailyWork
 
 
 class DailyWork:
@@ -445,6 +459,9 @@ class DailyWork:
         return result
 
 
+# MARK: WorkCalendar
+
+
 class WorkCalendar:
     """勤務カレンダー"""
 
@@ -482,12 +499,13 @@ class WorkCalendar:
         return self._daily
 
 
-# ============================================================
-#  OUTPUT — テキスト・CSV出力
+# MARK: - OUTPUT — テキスト・CSV出力
 #
 #  公開API: WorkCSV.content(), WorkText.content()
 #  依存: Domain層 (MonthPeriod, HolidayCalendar, WorkRule)
-# ============================================================
+
+
+# MARK: WorkCSV
 
 
 class WorkCSV:
@@ -531,6 +549,9 @@ class WorkCSV:
     def _time(self, dt: datetime, base: date) -> str:
         hour: int = WorkRule.adjusted_hour(dt, base)
         return f"{hour:02d}:{dt.minute:02d}"
+
+
+# MARK: WorkText
 
 
 class WorkText:
@@ -596,13 +617,14 @@ class WorkText:
         return f"{hour:02d}{sep}{dt.minute:02d}"
 
 
-# ============================================================
-#  WEB — HTML UI・HTTPサーバー
+# MARK: - WEB — HTML UI・HTTPサーバー
 #
 #  公開API: WorkHTTPServer.start()
 #  依存: Domain層
 #  ※ テンプレート文字列 (CSS/JS) はセクション末尾の WorkHTMLTemplate に集約
-# ============================================================
+
+
+# MARK: WorkHTMLRow
 
 
 class WorkHTMLRow:
@@ -685,6 +707,9 @@ class WorkHTMLRow:
             row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
 
 
+# MARK: WorkHTMLResponse
+
+
 class WorkHTMLResponse:
     """HTML APIレスポンス生成"""
 
@@ -719,6 +744,9 @@ class WorkHTMLResponse:
             end: datetime = start + timedelta(seconds=ev["duration"])
             for row in rows:
                 row.add_event(start, end, ev)
+
+
+# MARK: WorkHTTPHandler
 
 
 class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
@@ -767,6 +795,9 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(body)
         except Exception as e:
             self.send_error(502, f"API Error: {e}")
+
+
+# MARK: WorkHTTPServer
 
 
 class WorkHTTPServer:
@@ -819,6 +850,9 @@ class WorkHTTPServer:
             print(msg, file=sys.stderr)
 
 
+# MARK: WorkHTMLTemplate
+
+
 class WorkHTMLTemplate:
     """HTML出力テンプレート（CSS/JS含む）"""
 
@@ -843,7 +877,7 @@ class WorkHTMLTemplate:
         )
         return page
 
-    # ---- テンプレート文字列定数 ----
+    # MARK: Template Strings
 
     _CSS: str = "\n".join(
         [
@@ -1016,12 +1050,13 @@ loadMonth(initMonth);
         )
 
 
-# ============================================================
-#  CLI — エントリポイント
+# MARK: - CLI — エントリポイント
 #
 #  公開API: CLIMain.run()
 #  依存: 全層
-# ============================================================
+
+
+# MARK: CLIArgs
 
 
 class CLIArgs:
@@ -1092,6 +1127,9 @@ class CLIArgs:
         return self._args.bucket
 
 
+# MARK: CLIOutput
+
+
 class CLIOutput:
     """CLI出力処理"""
 
@@ -1138,6 +1176,9 @@ class CLIOutput:
     def _status(self, msg: str) -> None:
         if not self._args.quiet:
             print(msg, file=sys.stderr)
+
+
+# MARK: CLIMain
 
 
 class CLIMain:
