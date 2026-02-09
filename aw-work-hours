@@ -28,12 +28,146 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import TypedDict
 from zoneinfo import ZoneInfo
+
+
+# ============================================================
+#  TYPES — 定数・例外・型定義
+# ============================================================
 
 _API_BASE: str = "http://127.0.0.1:5600/api/0"
 _TIMEZONE: ZoneInfo = ZoneInfo("Asia/Tokyo")
-_WORK_GAP_SECONDS: int = 3 * 60 * 60
 _WEEKDAYS: list[str] = ["月", "火", "水", "木", "金", "土", "日"]
+
+
+class CLIError(Exception):
+    """ユーザー入力や設定のエラー（引数不正・バケット未発見など）"""
+
+
+class APIConnectionError(Exception):
+    """ActivityWatch APIへの接続エラー"""
+
+
+class AWEvent(TypedDict):
+    """ActivityWatch APIから取得するイベント"""
+
+    timestamp: str
+    duration: float
+    data: dict[str, str]
+
+
+class HTMLEvent(TypedDict):
+    """HTML UI用のイベントデータ"""
+
+    startH: int
+    startM: int
+    startS: int
+    endH: int
+    endM: int
+    endS: int
+    duration: float
+    data: dict[str, str]
+
+
+# ============================================================
+#  DOMAIN — ドメインロジック（勤務判定・集計）
+#
+#  公開API:
+#    WorkRule       — 勤務日判定ルール (work_date / adjusted_hour 等)
+#    MonthPeriod    — 月の期間解析と日付範囲生成
+#    AFKBucket      — AFKバケットの自動選択
+#    AFKEvents      — イベント取得とwork block抽出
+#    HolidayCalendar — 祝日判定
+#    DailyWork      — 日ごとの勤務統計 (active時間・最大gap)
+#    WorkCalendar   — 勤務カレンダー (from_period が計算入口)
+#  依存: ActivityWatch API, holidays-jp API
+# ============================================================
+
+
+class WorkRule:
+    """勤務日の判定ルール
+
+    - 0:00-4:59の勤務は前日扱い（日境界 = 5:00）
+    - 3時間超の離席 かつ 5:00以降に再開 → 別ブロック
+    - 24:00超えは26:00のように表記
+    """
+
+    _GAP_SECONDS: int = 3 * 60 * 60
+    _DAY_BOUNDARY_HOUR: int = 5
+
+    @staticmethod
+    def work_date(dt: datetime) -> date:
+        """勤務日: 0:00-4:59は前日扱い"""
+        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
+
+    @staticmethod
+    def is_block_boundary(gap_seconds: float, start_hour: int) -> bool:
+        """3時間超の離席 かつ 5:00以降に再開 → 新ブロック"""
+        return (
+            gap_seconds > WorkRule._GAP_SECONDS
+            and start_hour >= WorkRule._DAY_BOUNDARY_HOUR
+        )
+
+    @staticmethod
+    def adjusted_hour(dt: datetime, base: date) -> int:
+        """日跨ぎ対応の時間表示（25:00等）"""
+        return dt.hour + ((dt.date() - base).days * 24)
+
+    @staticmethod
+    def span_hours(start: datetime, end: datetime) -> float:
+        """時間幅（時間単位）"""
+        return (end - start).total_seconds() / 3600
+
+
+class MonthPeriod:
+    """月の期間"""
+
+    def __init__(self, start: datetime | None, end: datetime | None) -> None:
+        self._start: datetime | None = start
+        self._end: datetime | None = end
+
+    @classmethod
+    def parse(cls, month_str: str) -> "MonthPeriod":
+        if month_str == "all":
+            return cls(None, None)
+        year, month = cls._parse_year_month(month_str)
+        start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
+        end_year, end_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        end: datetime = datetime(end_year, end_month, 1, tzinfo=_TIMEZONE)
+        return cls(start, end)
+
+    @classmethod
+    def _parse_year_month(cls, month_str: str) -> tuple[int, int]:
+        now: datetime = datetime.now(_TIMEZONE)
+        if month_str == "this":
+            return now.year, now.month
+        if month_str == "last":
+            return (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+        try:
+            year, month = map(int, month_str.split("-"))
+            return year, month
+        except ValueError:
+            raise CLIError(f"エラー: 無効な月指定です: {month_str}")
+
+    @property
+    def iso(self) -> tuple[str | None, str | None]:
+        return (
+            self._start.isoformat() if self._start else None,
+            self._end.isoformat() if self._end else None,
+        )
+
+    def date_range(self) -> list[date]:
+        if not (self._start and self._end):
+            return []
+        today: date = datetime.now(_TIMEZONE).date()
+        result: list[date] = []
+        current: date = self._start.date()
+        end: date = min(self._end.date(), today + timedelta(days=1))
+        while current < end:
+            result.append(current)
+            current += timedelta(days=1)
+        return result
 
 
 class AFKBucketCandidates:
@@ -46,9 +180,10 @@ class AFKBucketCandidates:
     @property
     def selected(self) -> str:
         if not self._afk_ids:
-            print("エラー: AFKバケットが見つかりません", file=sys.stderr)
-            print("aw-watcher-afkが有効か確認してください", file=sys.stderr)
-            sys.exit(1)
+            raise CLIError(
+                "エラー: AFKバケットが見つかりません\n"
+                "aw-watcher-afkが有効か確認してください"
+            )
         if self._preference:
             return self._by_preference()
         if len(self._afk_ids) == 1:
@@ -59,22 +194,20 @@ class AFKBucketCandidates:
         pref: str = self._preference or ""
         matched: list[str] = [b for b in self._afk_ids if pref.lower() in b.lower()]
         if not matched:
-            print(
+            lines: list[str] = [
                 f"エラー: '{self._preference}' にマッチするバケットが見つかりません",
-                file=sys.stderr,
-            )
-            print("利用可能なバケット:", file=sys.stderr)
+                "利用可能なバケット:",
+            ]
             for bid in self._afk_ids:
-                print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
-            sys.exit(1)
+                lines.append(f"  {bid.replace('aw-watcher-afk_', '')}")
+            raise CLIError("\n".join(lines))
         if len(matched) > 1:
-            print(
+            lines = [
                 f"エラー: '{self._preference}' に複数のバケットがマッチしました:",
-                file=sys.stderr,
-            )
+            ]
             for bid in matched:
-                print(f"  {bid.replace('aw-watcher-afk_', '')}", file=sys.stderr)
-            sys.exit(1)
+                lines.append(f"  {bid.replace('aw-watcher-afk_', '')}")
+            raise CLIError("\n".join(lines))
         return matched[0]
 
     def _by_latest(self) -> str:
@@ -85,6 +218,7 @@ class AFKBucketCandidates:
         ranked.sort(
             key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True
         )
+        # 複数バケット検出時の情報表示（候補の詳細はここでしか参照できない）
         print(
             "複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:",
             file=sys.stderr,
@@ -101,7 +235,7 @@ class AFKBucketCandidates:
         url: str = f"{_API_BASE}/buckets/{bucket_id}/events?limit=1"
         try:
             with urllib.request.urlopen(url, timeout=5) as resp:
-                events: list = json.loads(resp.read().decode())
+                events: list[AWEvent] = json.loads(resp.read().decode())
                 if events:
                     return datetime.fromisoformat(events[0]["timestamp"]).astimezone(
                         _TIMEZONE
@@ -134,12 +268,13 @@ class AFKBucket:
         url: str = f"{_API_BASE}/buckets"
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:
-                buckets: dict = json.loads(resp.read().decode())
+                buckets: dict = json.loads(resp.read().decode())  # type: ignore[type-arg]
         except urllib.error.URLError as e:
-            print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
-            print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
-            print(f"詳細: {e}", file=sys.stderr)
-            sys.exit(1)
+            raise APIConnectionError(
+                "エラー: ActivityWatch APIに接続できません\n"
+                "ActivityWatchが起動しているか確認してください\n"
+                f"詳細: {e}"
+            ) from e
         return [b for b in buckets if b.startswith("aw-watcher-afk_")]
 
     @classmethod
@@ -148,62 +283,11 @@ class AFKBucket:
         return candidates.selected
 
 
-class MonthPeriod:
-    """月の期間"""
-
-    def __init__(self, start: datetime | None, end: datetime | None) -> None:
-        self._start: datetime | None = start
-        self._end: datetime | None = end
-
-    @classmethod
-    def parse(cls, month_str: str) -> "MonthPeriod":
-        if month_str == "all":
-            return cls(None, None)
-        year, month = cls._parse_year_month(month_str)
-        start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
-        end_year, end_month = (year + 1, 1) if month == 12 else (year, month + 1)
-        end: datetime = datetime(end_year, end_month, 1, tzinfo=_TIMEZONE)
-        return cls(start, end)
-
-    @classmethod
-    def _parse_year_month(cls, month_str: str) -> tuple[int, int]:
-        now: datetime = datetime.now(_TIMEZONE)
-        if month_str == "this":
-            return now.year, now.month
-        if month_str == "last":
-            return (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
-        try:
-            year, month = map(int, month_str.split("-"))
-            return year, month
-        except ValueError:
-            print(f"エラー: 無効な月指定です: {month_str}", file=sys.stderr)
-            sys.exit(1)
-
-    @property
-    def iso(self) -> tuple[str | None, str | None]:
-        return (
-            self._start.isoformat() if self._start else None,
-            self._end.isoformat() if self._end else None,
-        )
-
-    def date_range(self) -> list[date]:
-        if not (self._start and self._end):
-            return []
-        today: date = datetime.now(_TIMEZONE).date()
-        result: list[date] = []
-        current: date = self._start.date()
-        end: date = min(self._end.date(), today + timedelta(days=1))
-        while current < end:
-            result.append(current)
-            current += timedelta(days=1)
-        return result
-
-
 class AFKEvents:
     """ActivityWatchのAFKイベント"""
 
-    def __init__(self, events: list[dict]) -> None:
-        self._events: list[dict] = events
+    def __init__(self, events: list[AWEvent]) -> None:
+        self._events: list[AWEvent] = events
 
     @classmethod
     def fetch(cls, start: str | None, end: str | None) -> "AFKEvents":
@@ -218,18 +302,19 @@ class AFKEvents:
             with urllib.request.urlopen(url, timeout=30) as resp:
                 return cls(json.loads(resp.read().decode()))
         except urllib.error.URLError as e:
-            print("エラー: ActivityWatch APIに接続できません", file=sys.stderr)
-            print("ActivityWatchが起動しているか確認してください", file=sys.stderr)
-            print(f"詳細: {e}", file=sys.stderr)
-            sys.exit(1)
+            raise APIConnectionError(
+                "エラー: ActivityWatch APIに接続できません\n"
+                "ActivityWatchが起動しているか確認してください\n"
+                f"詳細: {e}"
+            ) from e
 
     @property
-    def raw(self) -> list[dict]:
+    def raw(self) -> list[AWEvent]:
         return self._events
 
     @property
     def work_blocks(self) -> list[tuple[datetime, datetime]]:
-        not_afk: list[dict] = sorted(
+        not_afk: list[AWEvent] = sorted(
             [
                 e
                 for e in self._events
@@ -239,7 +324,7 @@ class AFKEvents:
         )
         return self._extract_blocks(not_afk) if not_afk else []
 
-    def _extract_blocks(self, events: list[dict]) -> list[tuple[datetime, datetime]]:
+    def _extract_blocks(self, events: list[AWEvent]) -> list[tuple[datetime, datetime]]:
         blocks: list[tuple[datetime, datetime]] = []
         block_start: datetime | None = None
         block_end: datetime = datetime.min.replace(tzinfo=_TIMEZONE)
@@ -252,7 +337,7 @@ class AFKEvents:
                 block_start, block_end = start, end
             else:
                 gap: float = (start - block_end).total_seconds()
-                if gap > _WORK_GAP_SECONDS and start.hour >= 5:
+                if WorkRule.is_block_boundary(gap, start.hour):
                     blocks.append((block_start, block_end))
                     block_start, block_end = start, end
                 else:
@@ -260,58 +345,6 @@ class AFKEvents:
         if block_start is not None:
             blocks.append((block_start, block_end))
         return blocks
-
-
-class DailyWork:
-    """日ごとの勤務統計"""
-
-    def __init__(self, events: list[dict]) -> None:
-        self._not_afk: list[dict] = [
-            e for e in events if e["data"]["status"] == "not-afk"
-        ]
-
-    @property
-    def active(self) -> dict[date, float]:
-        result: dict[date, float] = {}
-        for event in self._not_afk:
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
-                _TIMEZONE
-            )
-            wd: date = WorkCalendar.work_date(start)
-            result[wd] = result.get(wd, 0) + event["duration"]
-        return result
-
-    @property
-    def gaps(self) -> dict[date, float]:
-        events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
-        for event in self._not_afk:
-            if event["duration"] < 5:
-                continue
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
-                _TIMEZONE
-            )
-            end: datetime = start + timedelta(seconds=event["duration"])
-            wd: date = WorkCalendar.work_date(start)
-            if wd not in events_by_day:
-                events_by_day[wd] = []
-            events_by_day[wd].append((start, end))
-        return self._calc_max_gaps(events_by_day)
-
-    def _calc_max_gaps(
-        self, events_by_day: dict[date, list[tuple[datetime, datetime]]]
-    ) -> dict[date, float]:
-        result: dict[date, float] = {}
-        for wd, events in events_by_day.items():
-            sorted_events: list[tuple[datetime, datetime]] = sorted(events)
-            max_gap: float = 0
-            max_end: datetime = sorted_events[0][1] if sorted_events else datetime.min
-            for i in range(1, len(sorted_events)):
-                gap: float = (sorted_events[i][0] - max_end).total_seconds()
-                if gap > 0:
-                    max_gap = max(max_gap, gap)
-                max_end = max(max_end, sorted_events[i][1])
-            result[wd] = max_gap
-        return result
 
 
 class HolidayCalendar:
@@ -356,7 +389,60 @@ class HolidayCalendar:
                 f.write(raw.decode("utf-8") + "\n")
             return {date.fromisoformat(d) for d in holidays.keys()}
         except urllib.error.URLError:
+            # 祝日API接続失敗は致命的でないため空を返す（表示上の差異のみ）
             return set()
+
+
+class DailyWork:
+    """日ごとの勤務統計"""
+
+    def __init__(self, events: list[AWEvent]) -> None:
+        self._not_afk: list[AWEvent] = [
+            e for e in events if e["data"]["status"] == "not-afk"
+        ]
+
+    @property
+    def active(self) -> dict[date, float]:
+        result: dict[date, float] = {}
+        for event in self._not_afk:
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
+                _TIMEZONE
+            )
+            wd: date = WorkRule.work_date(start)
+            result[wd] = result.get(wd, 0) + event["duration"]
+        return result
+
+    @property
+    def gaps(self) -> dict[date, float]:
+        events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
+        for event in self._not_afk:
+            if event["duration"] < 5:
+                continue
+            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
+                _TIMEZONE
+            )
+            end: datetime = start + timedelta(seconds=event["duration"])
+            wd: date = WorkRule.work_date(start)
+            if wd not in events_by_day:
+                events_by_day[wd] = []
+            events_by_day[wd].append((start, end))
+        return self._calc_max_gaps(events_by_day)
+
+    def _calc_max_gaps(
+        self, events_by_day: dict[date, list[tuple[datetime, datetime]]]
+    ) -> dict[date, float]:
+        result: dict[date, float] = {}
+        for wd, events in events_by_day.items():
+            sorted_events: list[tuple[datetime, datetime]] = sorted(events)
+            max_gap: float = 0
+            max_end: datetime = sorted_events[0][1] if sorted_events else datetime.min
+            for i in range(1, len(sorted_events)):
+                gap: float = (sorted_events[i][0] - max_end).total_seconds()
+                if gap > 0:
+                    max_gap = max(max_gap, gap)
+                max_end = max(max_end, sorted_events[i][1])
+            result[wd] = max_gap
+        return result
 
 
 class WorkCalendar:
@@ -369,7 +455,7 @@ class WorkCalendar:
     def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
         daily: dict[date, tuple[datetime, datetime]] = {}
         for block_start, block_end in blocks:
-            wd: date = cls.work_date(block_start)
+            wd: date = WorkRule.work_date(block_start)
             if wd not in daily:
                 daily[wd] = (block_start, block_end)
             else:
@@ -377,9 +463,15 @@ class WorkCalendar:
                 daily[wd] = (min(block_start, s), max(block_end, e))
         return cls(daily)
 
-    @staticmethod
-    def work_date(dt: datetime) -> date:
-        return (dt - timedelta(days=1)).date() if 0 <= dt.hour < 5 else dt.date()
+    @classmethod
+    def from_period(
+        cls, period: MonthPeriod
+    ) -> tuple["WorkCalendar", DailyWork, AFKEvents]:
+        """ドメイン計算の入口: 期間→カレンダー・勤務統計・イベント"""
+        events: AFKEvents = AFKEvents.fetch(*period.iso)
+        daily_work: DailyWork = DailyWork(events.raw)
+        calendar: "WorkCalendar" = cls.from_blocks(events.work_blocks)
+        return calendar, daily_work, events
 
     @property
     def days(self) -> int:
@@ -388,6 +480,14 @@ class WorkCalendar:
     @property
     def daily(self) -> dict[date, tuple[datetime, datetime]]:
         return self._daily
+
+
+# ============================================================
+#  OUTPUT — テキスト・CSV出力
+#
+#  公開API: WorkCSV.content(), WorkText.content()
+#  依存: Domain層 (MonthPeriod, HolidayCalendar, WorkRule)
+# ============================================================
 
 
 class WorkCSV:
@@ -422,14 +522,14 @@ class WorkCSV:
         if d not in self._daily:
             return f"{prefix},,,,,"
         start, end = self._daily[d]
-        span: float = (end - start).total_seconds() / 3600
+        span: float = WorkRule.span_hours(start, end)
         active: float = self._active.get(d, 0) / 3600
         afk: float = span - active
         max_gap: float = self._max_gap.get(d, 0) / 3600
         return f'{prefix},="{self._time(start, d)}",="{self._time(end, d)}",{span:.2f},{afk:.2f},{max_gap:.2f}'
 
     def _time(self, dt: datetime, base: date) -> str:
-        hour: int = dt.hour + ((dt.date() - base).days * 24)
+        hour: int = WorkRule.adjusted_hour(dt, base)
         return f"{hour:02d}:{dt.minute:02d}"
 
 
@@ -476,7 +576,7 @@ class WorkText:
 
     def _format_work_day(self, d: date, prefix: str, is_holiday: bool) -> str:
         s, e = self._daily[d]
-        span: float = (e - s).total_seconds() / 3600
+        span: float = WorkRule.span_hours(s, e)
         if round(span, 1) == 0:
             return prefix
         active: float = self._active.get(d, 0) / 3600
@@ -491,13 +591,236 @@ class WorkText:
         return f"{base}   -{afk:.1f}h (max:-{max_gap:.1f}h)"
 
     def _time(self, dt: datetime, base: date) -> str:
-        hour: int = dt.hour + ((dt.date() - base).days * 24)
+        hour: int = WorkRule.adjusted_hour(dt, base)
         sep: str = "" if self._no_colon else ":"
         return f"{hour:02d}{sep}{dt.minute:02d}"
 
 
+# ============================================================
+#  WEB — HTML UI・HTTPサーバー
+#
+#  公開API: WorkHTTPServer.start()
+#  依存: Domain層
+#  ※ テンプレート文字列 (CSS/JS) はセクション末尾の WorkHTMLTemplate に集約
+# ============================================================
+
+
+class WorkHTMLRow:
+    """HTML用の日別行データ"""
+
+    def __init__(
+        self,
+        d: date,
+        calendar: WorkCalendar,
+        daily_work: DailyWork,
+        holidays: HolidayCalendar,
+    ) -> None:
+        self._date: date = d
+        self._calendar: WorkCalendar = calendar
+        self._daily_work: DailyWork = daily_work
+        self._holidays: HolidayCalendar = holidays
+        self._events: list[HTMLEvent] = []
+
+    def add_event(self, start: datetime, end: datetime, event: AWEvent) -> None:
+        current: date = start.date()
+        while current <= end.date():
+            if current == self._date:
+                day_start: datetime = max(
+                    start,
+                    datetime.combine(current, datetime.min.time()).replace(
+                        tzinfo=_TIMEZONE
+                    ),
+                )
+                day_end_limit: datetime = datetime.combine(
+                    current + timedelta(days=1), datetime.min.time()
+                ).replace(tzinfo=_TIMEZONE)
+                day_end: datetime = min(end, day_end_limit)
+                if day_end > day_start:
+                    self._events.append(
+                        self._event_dict(day_start, day_end, current, event)
+                    )
+            current += timedelta(days=1)
+
+    def _event_dict(
+        self, start: datetime, end: datetime, current: date, event: AWEvent
+    ) -> HTMLEvent:
+        return {
+            "startH": start.hour,
+            "startM": start.minute,
+            "startS": start.second,
+            "endH": end.hour if end.date() == current else 24,
+            "endM": end.minute if end.date() == current else 0,
+            "endS": end.second if end.date() == current else 0,
+            "duration": (end - start).total_seconds(),
+            "data": event["data"],
+        }
+
+    def to_dict(self) -> dict:
+        d: date = self._date
+        has_work: bool = d in self._calendar.daily
+        is_holiday: bool = has_work and self._holidays.is_holiday(d)
+        row: dict = {
+            "date": d.isoformat(),
+            "weekday": _WEEKDAYS[d.weekday()],
+            "holiday": is_holiday,
+            "hasWork": has_work,
+        }
+        if has_work:
+            self._add_work_fields(row, d)
+        row["events"] = self._events
+        return row
+
+    def _add_work_fields(self, row: dict, d: date) -> None:
+        s, e = self._calendar.daily[d]
+        span: float = WorkRule.span_hours(s, e)
+        row["startH"] = WorkRule.adjusted_hour(s, d)
+        row["startM"] = s.minute
+        row["endH"] = WorkRule.adjusted_hour(e, d)
+        row["endM"] = e.minute
+        row["span"] = round(span, 1)
+        active_h: float = self._daily_work.active.get(d, 0) / 3600
+        afk: float = span - active_h
+        if afk >= 0.05:
+            row["afk"] = round(afk, 1)
+            row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
+
+
+class WorkHTMLResponse:
+    """HTML APIレスポンス生成"""
+
+    def __init__(self, period: MonthPeriod) -> None:
+        self._period: MonthPeriod = period
+
+    def json(self) -> dict:
+        calendar, daily_work, events = WorkCalendar.from_period(self._period)
+        holidays: HolidayCalendar = HolidayCalendar()
+        rows: list[WorkHTMLRow] = self._create_rows(calendar, daily_work, holidays)
+        self._populate_events(rows, events)
+        return {"rows": [r.to_dict() for r in rows]}
+
+    def _create_rows(
+        self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar
+    ) -> list[WorkHTMLRow]:
+        return [
+            WorkHTMLRow(d, calendar, daily_work, holidays)
+            for d in self._period.date_range()
+        ]
+
+    def _populate_events(self, rows: list[WorkHTMLRow], events: AFKEvents) -> None:
+        not_afk: list[AWEvent] = [
+            e
+            for e in events.raw
+            if e["data"]["status"] == "not-afk" and e["duration"] >= 5
+        ]
+        for ev in not_afk:
+            start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(
+                _TIMEZONE
+            )
+            end: datetime = start + timedelta(seconds=ev["duration"])
+            for row in rows:
+                row.add_event(start, end, ev)
+
+
+class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTPリクエストハンドラ"""
+
+    directory: str = ""
+
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(*args, directory=self.directory, **kwargs)
+
+    def log_message(self, format: str, *args) -> None:
+        pass
+
+    def do_GET(self) -> None:
+        if self.path.startswith("/data/"):
+            self._handle_data()
+        elif self.path.startswith("/api/"):
+            self._proxy_api()
+        else:
+            super().do_GET()
+
+    def _handle_data(self) -> None:
+        try:
+            month_str: str = self.path.split("/")[-1]
+            period: MonthPeriod = MonthPeriod.parse(month_str)
+            response: WorkHTMLResponse = WorkHTMLResponse(period)
+            body: bytes = json.dumps(response.json(), ensure_ascii=False).encode(
+                "utf-8"
+            )
+            self._send_json(body)
+        except Exception as e:
+            self.send_error(500, f"Error: {e}")
+
+    def _send_json(self, body: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _proxy_api(self) -> None:
+        url: str = f"http://127.0.0.1:5600{self.path}"
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                body: bytes = resp.read()
+                self._send_json(body)
+        except Exception as e:
+            self.send_error(502, f"API Error: {e}")
+
+
+class WorkHTTPServer:
+    """HTTPサーバー"""
+
+    def __init__(self, port: int = 8600) -> None:
+        self._port: int = port
+        self._html_dir: str = tempfile.gettempdir()
+
+    def start(self, html: str, quiet: bool) -> None:
+        html_path: Path = Path(self._html_dir) / "aw-work-hours.html"
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        self._status(f"HTML出力: {html_path}", quiet)
+        if not self._is_port_in_use():
+            self._start_server(quiet)
+        else:
+            self._status(f"サーバーは既に起動中 (port {self._port})", quiet)
+        self._open_browser(quiet)
+
+    def _is_port_in_use(self) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("localhost", self._port)) == 0
+
+    def _start_server(self, quiet: bool) -> None:
+        WorkHTTPHandler.directory = self._html_dir
+
+        def serve() -> None:
+            with http.server.HTTPServer(("", self._port), WorkHTTPHandler) as httpd:
+                httpd.serve_forever()
+
+        threading.Thread(target=serve, daemon=True).start()
+        self._status(f"サーバー起動: http://localhost:{self._port}/", quiet)
+
+    def _open_browser(self, quiet: bool) -> None:
+        import time
+
+        url: str = f"http://localhost:{self._port}/aw-work-hours.html"
+        self._status(f"ブラウザで開きます: {url}", quiet)
+        subprocess.run(["open", url], check=False)
+        self._status("Ctrl+C で終了", quiet)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self._status("\n終了します", quiet)
+
+    def _status(self, msg: str, quiet: bool) -> None:
+        if not quiet:
+            print(msg, file=sys.stderr)
+
+
 class WorkHTMLTemplate:
-    """HTML出力テンプレート"""
+    """HTML出力テンプレート（CSS/JS含む）"""
 
     @classmethod
     def render(cls, no_colon: bool, init_month: str | None) -> str:
@@ -519,6 +842,8 @@ class WorkHTMLTemplate:
             f"{script}\n</body>\n</html>\n"
         )
         return page
+
+    # ---- テンプレート文字列定数 ----
 
     _CSS: str = "\n".join(
         [
@@ -691,221 +1016,12 @@ loadMonth(initMonth);
         )
 
 
-class WorkHTMLRow:
-    """HTML用の日別行データ"""
-
-    def __init__(
-        self,
-        d: date,
-        calendar: WorkCalendar,
-        daily_work: DailyWork,
-        holidays: HolidayCalendar,
-    ) -> None:
-        self._date: date = d
-        self._calendar: WorkCalendar = calendar
-        self._daily_work: DailyWork = daily_work
-        self._holidays: HolidayCalendar = holidays
-        self._events: list[dict] = []
-
-    def add_event(self, start: datetime, end: datetime, event: dict) -> None:
-        self._add_event_segment(start, end, event)
-
-    def _add_event_segment(self, start: datetime, end: datetime, event: dict) -> None:
-        current: date = start.date()
-        while current <= end.date():
-            if current == self._date:
-                day_start: datetime = max(
-                    start,
-                    datetime.combine(current, datetime.min.time()).replace(
-                        tzinfo=_TIMEZONE
-                    ),
-                )
-                day_end_limit: datetime = datetime.combine(
-                    current + timedelta(days=1), datetime.min.time()
-                ).replace(tzinfo=_TIMEZONE)
-                day_end: datetime = min(end, day_end_limit)
-                if day_end > day_start:
-                    self._events.append(
-                        self._event_dict(day_start, day_end, current, event)
-                    )
-            current += timedelta(days=1)
-
-    def _event_dict(
-        self, start: datetime, end: datetime, current: date, event: dict
-    ) -> dict:
-        return {
-            "startH": start.hour,
-            "startM": start.minute,
-            "startS": start.second,
-            "endH": end.hour if end.date() == current else 24,
-            "endM": end.minute if end.date() == current else 0,
-            "endS": end.second if end.date() == current else 0,
-            "duration": (end - start).total_seconds(),
-            "data": event["data"],
-        }
-
-    def to_dict(self) -> dict:
-        d: date = self._date
-        has_work: bool = d in self._calendar.daily
-        is_holiday: bool = has_work and self._holidays.is_holiday(d)
-        row: dict = {
-            "date": d.isoformat(),
-            "weekday": _WEEKDAYS[d.weekday()],
-            "holiday": is_holiday,
-            "hasWork": has_work,
-        }
-        if has_work:
-            self._add_work_fields(row, d)
-        row["events"] = self._events
-        return row
-
-    def _add_work_fields(self, row: dict, d: date) -> None:
-        s, e = self._calendar.daily[d]
-        span: float = (e - s).total_seconds() / 3600
-        row["startH"], row["startM"] = s.hour + ((s.date() - d).days * 24), s.minute
-        row["endH"], row["endM"] = e.hour + ((e.date() - d).days * 24), e.minute
-        row["span"] = round(span, 1)
-        active_h: float = self._daily_work.active.get(d, 0) / 3600
-        afk: float = span - active_h
-        if afk >= 0.05:
-            row["afk"] = round(afk, 1)
-            row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
-
-
-class WorkHTMLResponse:
-    """HTML APIレスポンス生成"""
-
-    def __init__(self, period: MonthPeriod) -> None:
-        self._period: MonthPeriod = period
-
-    def json(self) -> dict:
-        events: AFKEvents = AFKEvents.fetch(*self._period.iso)
-        daily_work: DailyWork = DailyWork(events.raw)
-        calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
-        holidays: HolidayCalendar = HolidayCalendar()
-        rows: list[WorkHTMLRow] = self._create_rows(calendar, daily_work, holidays)
-        self._populate_events(rows, events)
-        return {"rows": [r.to_dict() for r in rows]}
-
-    def _create_rows(
-        self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar
-    ) -> list[WorkHTMLRow]:
-        return [
-            WorkHTMLRow(d, calendar, daily_work, holidays)
-            for d in self._period.date_range()
-        ]
-
-    def _populate_events(self, rows: list[WorkHTMLRow], events: AFKEvents) -> None:
-        not_afk: list[dict] = [
-            e
-            for e in events.raw
-            if e["data"]["status"] == "not-afk" and e["duration"] >= 5
-        ]
-        for ev in not_afk:
-            start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(
-                _TIMEZONE
-            )
-            end: datetime = start + timedelta(seconds=ev["duration"])
-            for row in rows:
-                row.add_event(start, end, ev)
-
-
-class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
-    """HTTPリクエストハンドラ"""
-
-    directory: str = ""
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, directory=self.directory, **kwargs)
-
-    def log_message(self, format: str, *args) -> None:
-        pass
-
-    def do_GET(self) -> None:
-        if self.path.startswith("/data/"):
-            self._handle_data()
-        elif self.path.startswith("/api/"):
-            self._proxy_api()
-        else:
-            super().do_GET()
-
-    def _handle_data(self) -> None:
-        try:
-            month_str: str = self.path.split("/")[-1]
-            period: MonthPeriod = MonthPeriod.parse(month_str)
-            response: WorkHTMLResponse = WorkHTMLResponse(period)
-            body: bytes = json.dumps(response.json(), ensure_ascii=False).encode(
-                "utf-8"
-            )
-            self._send_json(body)
-        except Exception as e:
-            self.send_error(500, f"Error: {e}")
-
-    def _send_json(self, body: bytes) -> None:
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _proxy_api(self) -> None:
-        url: str = f"http://127.0.0.1:5600{self.path}"
-        try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                body: bytes = resp.read()
-                self._send_json(body)
-        except Exception as e:
-            self.send_error(502, f"API Error: {e}")
-
-
-class WorkHTTPServer:
-    """HTTPサーバー"""
-
-    def __init__(self, port: int = 8600) -> None:
-        self._port: int = port
-        self._html_dir: str = tempfile.gettempdir()
-
-    def start(self, no_colon: bool, init_month: str | None, quiet: bool) -> None:
-        html_path: Path = Path(self._html_dir) / "aw-work-hours.html"
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(WorkHTMLTemplate.render(no_colon, init_month))
-        self._status(f"HTML出力: {html_path}", quiet)
-        if not self._is_port_in_use():
-            self._start_server(quiet)
-        else:
-            self._status(f"サーバーは既に起動中 (port {self._port})", quiet)
-        self._open_browser(quiet)
-
-    def _is_port_in_use(self) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            return s.connect_ex(("localhost", self._port)) == 0
-
-    def _start_server(self, quiet: bool) -> None:
-        WorkHTTPHandler.directory = self._html_dir
-
-        def serve() -> None:
-            with http.server.HTTPServer(("", self._port), WorkHTTPHandler) as httpd:
-                httpd.serve_forever()
-
-        threading.Thread(target=serve, daemon=True).start()
-        self._status(f"サーバー起動: http://localhost:{self._port}/", quiet)
-
-    def _open_browser(self, quiet: bool) -> None:
-        import time
-
-        url: str = f"http://localhost:{self._port}/aw-work-hours.html"
-        self._status(f"ブラウザで開きます: {url}", quiet)
-        subprocess.run(["open", url], check=False)
-        self._status("Ctrl+C で終了", quiet)
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self._status("\n終了します", quiet)
-
-    def _status(self, msg: str, quiet: bool) -> None:
-        if not quiet:
-            print(msg, file=sys.stderr)
+# ============================================================
+#  CLI — エントリポイント
+#
+#  公開API: CLIMain.run()
+#  依存: 全層
+# ============================================================
 
 
 class CLIArgs:
@@ -1031,16 +1147,21 @@ class CLIMain:
         self._args: CLIArgs = CLIArgs()
 
     def run(self) -> None:
-        AFKBucket.set_preference(self._args.bucket)
-        if self._args.html:
-            self._run_html()
-        else:
-            self._run_text()
+        try:
+            AFKBucket.set_preference(self._args.bucket)
+            if self._args.html:
+                self._run_html()
+            else:
+                self._run_text()
+        except (CLIError, APIConnectionError) as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
 
     def _run_html(self) -> None:
         init_month: str | None = self._resolve_init_month()
+        html: str = WorkHTMLTemplate.render(self._args.no_colon, init_month)
         server: WorkHTTPServer = WorkHTTPServer()
-        server.start(self._args.no_colon, init_month, self._args.quiet)
+        server.start(html, self._args.quiet)
 
     def _resolve_init_month(self) -> str | None:
         if self._args.month in ("this", "all"):
@@ -1055,10 +1176,8 @@ class CLIMain:
         labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
         self._status(f"対象期間: {labels.get(self._args.month, self._args.month)}")
         self._status("ActivityWatchからデータを取得中...")
-        events: AFKEvents = AFKEvents.fetch(*period.iso)
+        calendar, daily_work, events = WorkCalendar.from_period(period)
         self._status(f"取得イベント数: {len(events.raw)}")
-        daily_work: DailyWork = DailyWork(events.raw)
-        calendar: WorkCalendar = WorkCalendar.from_blocks(events.work_blocks)
         self._status(f"勤務日数: {calendar.days}")
         output: CLIOutput = CLIOutput(self._args)
         output.run(calendar, daily_work, period)
