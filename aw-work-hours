@@ -94,6 +94,7 @@ class WorkRule:
 
     _GAP_SECONDS: int = 3 * 60 * 60
     _DAY_BOUNDARY_HOUR: int = 5
+    MIN_EVENT_SECONDS: int = 150
 
     @staticmethod
     def work_date(dt: datetime) -> date:
@@ -326,7 +327,8 @@ class AFKEvents:
             [
                 e
                 for e in self._events
-                if e["data"]["status"] == "not-afk" and e["duration"] >= 5
+                if e["data"]["status"] == "not-afk"
+                and e["duration"] >= WorkRule.MIN_EVENT_SECONDS
             ],
             key=lambda e: e["timestamp"],
         )
@@ -430,7 +432,7 @@ class DailyWork:
     def gaps(self) -> dict[date, float]:
         events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
         for event in self._not_afk:
-            if event["duration"] < 5:
+            if event["duration"] < WorkRule.MIN_EVENT_SECONDS:
                 continue
             start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
                 _TIMEZONE
@@ -735,7 +737,8 @@ class WorkHTMLResponse:
         not_afk: list[AWEvent] = [
             e
             for e in events.raw
-            if e["data"]["status"] == "not-afk" and e["duration"] >= 5
+            if e["data"]["status"] == "not-afk"
+            and e["duration"] >= WorkRule.MIN_EVENT_SECONDS
         ]
         for ev in not_afk:
             start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(
