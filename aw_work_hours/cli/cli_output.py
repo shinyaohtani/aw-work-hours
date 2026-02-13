@@ -34,7 +34,8 @@ class CLIOutput:
         csv: WorkCSV = WorkCSV(
             calendar.daily, daily_work.active, daily_work.gaps, period
         )
-        output_abspath: str = self._args.output  # type: ignore[assignment]
+        assert self._args.output is not None
+        output_abspath: str = self._args.output
         with open(output_abspath, "w", encoding="utf-8-sig") as f:
             f.write(csv.content())
         self._status(f"出力完了: {output_abspath}")

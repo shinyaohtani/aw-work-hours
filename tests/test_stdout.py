@@ -5,7 +5,9 @@ fixtures/ 内のAPIレスポンスを使い、ActivityWatch APIに接続せず�
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,7 +25,7 @@ def _load_fixture(name: str) -> bytes:
     return (_FIXTURES / name).read_bytes()
 
 
-def _mock_urlopen(month: str):  # type: ignore[no-untyped-def]
+def _mock_urlopen(month: str) -> Callable[..., MagicMock]:
     """urllib.request.urlopen の代替: fixtureからレスポンスを返す"""
     buckets_data: bytes = _load_fixture("api/buckets.json")
     events_data: bytes = _load_fixture(f"api/events/{month}.json")

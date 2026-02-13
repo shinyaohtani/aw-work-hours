@@ -4,6 +4,7 @@ import json
 import urllib.error
 import urllib.request
 from datetime import date
+from pathlib import Path
 
 import truststore
 
@@ -36,11 +37,11 @@ class HolidayCalendar:
         else:
             self._holidays[year] = self._fetch_and_cache(year, cache_file)
 
-    def _parse_cache(self, cache_file) -> set[date]:  # type: ignore[type-arg]
+    def _parse_cache(self, cache_file: Path) -> set[date]:
         with open(cache_file, encoding="utf-8") as f:
             return {date.fromisoformat(d) for d in json.load(f).keys()}
 
-    def _fetch_and_cache(self, year: int, cache_file) -> set[date]:  # type: ignore[type-arg]
+    def _fetch_and_cache(self, year: int, cache_file: Path) -> set[date]:
         url: str = self._API_URL.format(year=year)
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:

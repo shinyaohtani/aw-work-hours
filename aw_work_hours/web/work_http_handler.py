@@ -2,6 +2,7 @@
 
 import http.server
 import json
+from typing import Any
 import urllib.error
 import urllib.request
 
@@ -17,7 +18,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     directory: str = ""
 
-    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=self.directory, **kwargs)
 
     def log_message(self, format: str, *args) -> None:
@@ -58,7 +59,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_buckets(self) -> None:
         try:
-            afk_ids: list[str] = AFKBucket._fetch_ids()
+            afk_ids: list[str] = AFKBucket.fetch_ids()
             hostnames: list[str] = [
                 bid.replace("aw-watcher-afk_", "") for bid in afk_ids
             ]
@@ -76,12 +77,15 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(400, err)
                 return
             settings: Settings = Settings()
-            if "no_colon" in data:
-                settings.no_colon = data["no_colon"]  # type: ignore[assignment]
-            if "min_event_seconds" in data:
-                settings.min_event_seconds = data["min_event_seconds"]  # type: ignore[assignment]
+            if "no_colon" in data and isinstance(data["no_colon"], bool):
+                settings.no_colon = data["no_colon"]
+            if "min_event_seconds" in data and isinstance(
+                data["min_event_seconds"], int
+            ):
+                settings.min_event_seconds = data["min_event_seconds"]
             if "bucket" in data:
-                settings.bucket = data["bucket"]  # type: ignore[assignment]
+                bucket = data["bucket"]
+                settings.bucket = bucket if isinstance(bucket, str) else None
             settings.save()
             WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
             AFKBucket._cached_id = None
@@ -104,7 +108,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             return "no_colon must be a boolean"
         if "min_event_seconds" in data:
             v = data["min_event_seconds"]
-            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
                 return "min_event_seconds must be a non-negative integer"
         if "bucket" in data:
             v = data["bucket"]

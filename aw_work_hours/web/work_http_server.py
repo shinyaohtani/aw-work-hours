@@ -33,7 +33,9 @@ class WorkHTTPServer:
         WorkHTTPHandler.directory = self._WEB_DIR
 
         def serve() -> None:
-            with http.server.HTTPServer(("127.0.0.1", self._port), WorkHTTPHandler) as httpd:
+            with http.server.HTTPServer(
+                ("127.0.0.1", self._port), WorkHTTPHandler
+            ) as httpd:
                 httpd.serve_forever()
 
         threading.Thread(target=serve, daemon=True).start()

@@ -15,7 +15,8 @@ class Settings:
     def _load(self) -> dict[str, object]:
         try:
             with open(self._PATH, encoding="utf-8") as f:
-                return json.load(f)  # type: ignore[no-any-return]
+                result: dict[str, object] = json.load(f)
+                return result
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 

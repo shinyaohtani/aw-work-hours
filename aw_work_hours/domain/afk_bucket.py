@@ -22,16 +22,16 @@ class AFKBucket:
     def id(cls) -> str:
         if cls._cached_id:
             return cls._cached_id
-        afk_ids: list[str] = cls._fetch_ids()
+        afk_ids: list[str] = cls.fetch_ids()
         cls._cached_id = cls._resolve(afk_ids)
         return cls._cached_id
 
     @classmethod
-    def _fetch_ids(cls) -> list[str]:
+    def fetch_ids(cls) -> list[str]:
         url: str = f"{_API_BASE}/buckets"
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:
-                buckets: dict = json.loads(resp.read().decode())  # type: ignore[type-arg]
+                buckets: dict[str, object] = json.loads(resp.read().decode())
         except urllib.error.URLError as e:
             raise APIConnectionError(
                 "エラー: ActivityWatch APIに接続できません\n"
