@@ -15,6 +15,10 @@ class AFKBucket:
     _preference: str | None = None
 
     @classmethod
+    def clear_cache(cls) -> None:
+        cls._cached_id = None
+
+    @classmethod
     def set_preference(cls, hostname: str | None) -> None:
         cls._preference = hostname
 
