@@ -3,8 +3,12 @@
 import sys
 
 from ..settings import Settings
-from ..domain import DailyWork, HolidayCalendar, MonthPeriod, WorkCalendar
-from ..output import WorkCSV, WorkText
+from ..domain.daily_work import DailyWork
+from ..domain.holiday_calendar import HolidayCalendar
+from ..domain.month_period import MonthPeriod
+from ..domain.work_calendar import WorkCalendar
+from ..output.work_csv import WorkCSV
+from ..output.work_text import WorkText
 from .cli_args import CLIArgs
 
 

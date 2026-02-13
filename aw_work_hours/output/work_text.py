@@ -3,7 +3,9 @@
 from datetime import date, datetime, timedelta
 
 from ..types import _WEEKDAYS
-from ..domain import HolidayCalendar, MonthPeriod, WorkRule
+from ..domain.holiday_calendar import HolidayCalendar
+from ..domain.month_period import MonthPeriod
+from ..domain.work_rule import WorkRule
 
 
 class WorkText:

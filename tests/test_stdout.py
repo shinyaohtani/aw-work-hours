@@ -10,8 +10,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aw_work_hours.domain import HolidayCalendar, MonthPeriod, WorkCalendar
-from aw_work_hours.output import WorkText
+from aw_work_hours.domain.holiday_calendar import HolidayCalendar
+from aw_work_hours.domain.month_period import MonthPeriod
+from aw_work_hours.domain.work_calendar import WorkCalendar
+from aw_work_hours.output.work_text import WorkText
 
 _FIXTURES: Path = Path(__file__).parent.parent / "fixtures"
 _MONTHS: list[str] = [f"2025-{m:02d}" for m in range(1, 13)] + ["2026-01"]
@@ -52,7 +54,7 @@ def test_stdout(month: str) -> None:
     expected: str = (_FIXTURES / "expected" / f"{month}.txt").read_text()
 
     with patch(
-        "aw_work_hours.domain.urllib.request.urlopen",
+        "urllib.request.urlopen",
         side_effect=_mock_urlopen(month),
     ):
         period = MonthPeriod.parse(month)

@@ -6,7 +6,9 @@ import urllib.error
 import urllib.request
 
 from ..settings import Settings
-from ..domain import AFKBucket, MonthPeriod, WorkRule
+from ..domain.afk_bucket import AFKBucket
+from ..domain.month_period import MonthPeriod
+from ..domain.work_rule import WorkRule
 from .work_html_response import WorkHTMLResponse
 
 

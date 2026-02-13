@@ -6,7 +6,8 @@ import pytest
 # パッケージを import 可能にする
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from aw_work_hours.domain import AFKBucket, WorkRule
+from aw_work_hours.domain.afk_bucket import AFKBucket
+from aw_work_hours.domain.work_rule import WorkRule
 
 
 @pytest.fixture(autouse=True)

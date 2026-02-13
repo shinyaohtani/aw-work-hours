@@ -5,8 +5,12 @@ from datetime import date
 
 from ..types import APIConnectionError, CLIError
 from ..settings import Settings
-from ..domain import AFKBucket, DailyWork, MonthPeriod, WorkCalendar, WorkRule
-from ..web import WorkHTTPServer
+from ..domain.afk_bucket import AFKBucket
+from ..domain.daily_work import DailyWork
+from ..domain.month_period import MonthPeriod
+from ..domain.work_calendar import WorkCalendar
+from ..domain.work_rule import WorkRule
+from ..web.work_http_server import WorkHTTPServer
 from .cli_args import CLIArgs
 from .cli_output import CLIOutput
 

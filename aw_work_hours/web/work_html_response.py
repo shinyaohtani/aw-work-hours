@@ -3,14 +3,12 @@
 from datetime import datetime, timedelta
 
 from ..types import _TIMEZONE, AWEvent
-from ..domain import (
-    AFKEvents,
-    DailyWork,
-    HolidayCalendar,
-    MonthPeriod,
-    WorkCalendar,
-    WorkRule,
-)
+from ..domain.afk_events import AFKEvents
+from ..domain.daily_work import DailyWork
+from ..domain.holiday_calendar import HolidayCalendar
+from ..domain.month_period import MonthPeriod
+from ..domain.work_calendar import WorkCalendar
+from ..domain.work_rule import WorkRule
 from .work_html_row import WorkHTMLRow
 
 

@@ -3,7 +3,8 @@
 from datetime import date, datetime
 
 from ..types import _WEEKDAYS
-from ..domain import MonthPeriod, WorkRule
+from ..domain.month_period import MonthPeriod
+from ..domain.work_rule import WorkRule
 
 
 class WorkCSV:

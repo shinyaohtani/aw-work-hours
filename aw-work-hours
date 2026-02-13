@@ -5,6 +5,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
-from aw_work_hours.cli import CLIMain
+from aw_work_hours.cli.cli_main import CLIMain
 
 CLIMain().run()

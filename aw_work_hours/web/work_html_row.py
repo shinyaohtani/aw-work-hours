@@ -3,7 +3,10 @@
 from datetime import date, datetime, timedelta
 
 from ..types import _WEEKDAYS, _TIMEZONE, AWEvent, HTMLEvent
-from ..domain import DailyWork, HolidayCalendar, WorkCalendar, WorkRule
+from ..domain.daily_work import DailyWork
+from ..domain.holiday_calendar import HolidayCalendar
+from ..domain.work_calendar import WorkCalendar
+from ..domain.work_rule import WorkRule
 
 
 class WorkHTMLRow:
