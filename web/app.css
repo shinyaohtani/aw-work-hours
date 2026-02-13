@@ -1,0 +1,37 @@
+/* Timeline / Graph — position-based rendering */
+.timeline { position: relative; height: 18px; background: #f5f5f5;
+  border: 1px solid #e0e0e0; border-radius: 3px; }
+.event { position: absolute; height: 100%; background: #a5d6a7;
+  cursor: pointer; min-width: 2px; border-radius: 3px; }
+.event:hover { background: #81c784; }
+
+/* Tooltip */
+.tooltip { display: none; position: absolute; background: #fffde7;
+  border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px;
+  white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15);
+  border-radius: 4px; }
+.tooltip-row { margin: 2px 0; }
+.tooltip-label { font-weight: bold; display: inline-block; width: 60px; }
+
+/* Hour marks */
+.hour-marks { position: absolute; top: 0; left: 0; right: 0;
+  bottom: 0; pointer-events: none; }
+.hour-mark { position: absolute; top: 0; bottom: 0;
+  border-left: 1px solid #e0e0e0; }
+.hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }
+.hour-labels td div { display: flex; }
+.hour-labels td div span { flex: 1; text-align: left; }
+
+/* Table data cells — monospace for alignment */
+table { border-collapse: collapse; width: 100%; }
+td { padding: 3px 6px; vertical-align: middle;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, monospace;
+  font-size: 13px; }
+td.date { white-space: nowrap; }
+td.time { white-space: nowrap; text-align: right; }
+td.dur  { white-space: nowrap; text-align: right; }
+td.afk  { white-space: nowrap; text-align: right; color: #9ca3af; }
+td.timeline-cell { width: 100%; }
+
+/* Holiday */
+.holiday { color: #e57373; }

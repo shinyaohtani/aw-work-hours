@@ -21,7 +21,6 @@ import socket
 import ssl
 import subprocess
 import sys
-import tempfile
 import threading
 import urllib.error
 import urllib.parse
@@ -671,7 +670,7 @@ class WorkText:
 #
 #  公開API: WorkHTTPServer.start()
 #  依存: Domain層
-#  ※ テンプレート文字列 (CSS/JS) はセクション末尾の WorkHTMLTemplate に集約
+#  ※ フロントエンド (HTML/CSS/JS) は web/ ディレクトリに分離
 
 
 # MARK: WorkHTMLRow
@@ -918,27 +917,24 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
 class WorkHTTPServer:
     """HTTPサーバー"""
 
+    _WEB_DIR: str = str(Path(__file__).resolve().parent / "web")
+
     def __init__(self, port: int = 8600) -> None:
         self._port: int = port
-        self._html_dir: str = tempfile.gettempdir()
 
-    def start(self, html: str, quiet: bool) -> None:
-        html_path: Path = Path(self._html_dir) / "aw-work-hours.html"
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html)
-        self._status(f"HTML出力: {html_path}", quiet)
+    def start(self, init_month: str | None, quiet: bool) -> None:
         if not self._is_port_in_use():
             self._start_server(quiet)
         else:
             self._status(f"サーバーは既に起動中 (port {self._port})", quiet)
-        self._open_browser(quiet)
+        self._open_browser(init_month, quiet)
 
     def _is_port_in_use(self) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(("localhost", self._port)) == 0
 
     def _start_server(self, quiet: bool) -> None:
-        WorkHTTPHandler.directory = self._html_dir
+        WorkHTTPHandler.directory = self._WEB_DIR
 
         def serve() -> None:
             with http.server.HTTPServer(("", self._port), WorkHTTPHandler) as httpd:
@@ -947,10 +943,11 @@ class WorkHTTPServer:
         threading.Thread(target=serve, daemon=True).start()
         self._status(f"サーバー起動: http://localhost:{self._port}/", quiet)
 
-    def _open_browser(self, quiet: bool) -> None:
+    def _open_browser(self, init_month: str | None, quiet: bool) -> None:
         import time
 
-        url: str = f"http://localhost:{self._port}/aw-work-hours.html"
+        query: str = f"?month={init_month}" if init_month else ""
+        url: str = f"http://localhost:{self._port}/{query}"
         self._status(f"ブラウザで開きます: {url}", quiet)
         subprocess.run(["open", url], check=False)
         self._status("Ctrl+C で終了", quiet)
@@ -963,302 +960,6 @@ class WorkHTTPServer:
     def _status(self, msg: str, quiet: bool) -> None:
         if not quiet:
             print(msg, file=sys.stderr)
-
-
-# MARK: WorkHTMLTemplate
-
-
-class WorkHTMLTemplate:
-    """HTML出力テンプレート（CSS/JS含む）"""
-
-    @classmethod
-    def render(cls, settings: Settings, init_month: str | None) -> str:
-        no_colon_js: str = "true" if settings.no_colon else "false"
-        min_event_js: str = str(settings.min_event_seconds)
-        init_month_js: str = f"'{init_month}'" if init_month else "null"
-        return cls._html(no_colon_js, min_event_js, init_month_js)
-
-    @classmethod
-    def _html(cls, no_colon_js: str, min_event_js: str, init_month_js: str) -> str:
-        css: str = cls._css()
-        controls: str = cls._controls()
-        script: str = cls._script(no_colon_js, min_event_js, init_month_js)
-        page: str = (
-            f'<!DOCTYPE html>\n<html lang="ja">\n<head>\n'
-            f'<meta charset="UTF-8">\n<title>Work Hours</title>\n'
-            f"{css}\n</head>\n<body>\n"
-            f"<h2>Work Hours - Active Time Visualization</h2>\n"
-            f'{controls}\n<table id="table"></table>\n'
-            f"{script}\n</body>\n</html>\n"
-        )
-        return page
-
-    # MARK: Template Strings
-
-    _CSS: str = "\n".join(
-        [
-            "<style>",
-            "body { font-family: monospace; margin: 20px; background: #fafafa; }",
-            ".controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }",
-            ".controls button { padding: 5px 15px; cursor: pointer; }",
-            '.controls input[type="month"] { padding: 5px; width: 100px; font-family: monospace; }',
-            '.controls input[type="checkbox"] { width: auto; }',
-            ".status { color: #888; margin-left: 10px; }",
-            "table { border-collapse: collapse; width: 100%; }",
-            "td { padding: 2px 4px; vertical-align: middle; }",
-            "td.date { white-space: nowrap; }",
-            "td.time { white-space: nowrap; text-align: right; }",
-            "td.dur { white-space: nowrap; text-align: right; }",
-            "td.afk { white-space: nowrap; text-align: right; color: #888; }",
-            "td.timeline-cell { width: 100%; }",
-            ".holiday { color: #e57373; }",
-            ".timeline { position: relative; height: 18px; background: #f5f5f5;"
-            " border: 1px solid #e0e0e0; border-radius: 3px; }",
-            ".event { position: absolute; height: 100%; background: #a5d6a7;"
-            " cursor: pointer; min-width: 2px; border-radius: 3px; }",
-            ".event:hover { background: #81c784; }",
-            ".tooltip { display: none; position: absolute; background: #fffde7;"
-            " border: 1px solid #c5c5c5; padding: 8px; z-index: 100; font-size: 12px;"
-            " white-space: nowrap; box-shadow: 2px 2px 5px rgba(0,0,0,0.15);"
-            " border-radius: 4px; }",
-            ".tooltip-row { margin: 2px 0; }",
-            ".tooltip-label { font-weight: bold; display: inline-block; width: 60px; }",
-            ".hour-marks { position: absolute; top: 0; left: 0; right: 0;"
-            " bottom: 0; pointer-events: none; }",
-            ".hour-mark { position: absolute; top: 0; bottom: 0;"
-            " border-left: 1px solid #e0e0e0; }",
-            ".hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }",
-            ".hour-labels td div { display: flex; }",
-            ".hour-labels td div span { flex: 1; text-align: left; }",
-            ".settings-overlay { display: none; position: fixed; top: 0; left: 0;"
-            " width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 200; }",
-            ".settings-dialog { position: fixed; top: 50%; left: 50%;"
-            " transform: translate(-50%, -50%); background: #fff;"
-            " border-radius: 8px; padding: 24px; z-index: 201;"
-            " box-shadow: 0 4px 20px rgba(0,0,0,0.3); min-width: 320px; }",
-            ".settings-dialog h3 { margin: 0 0 16px 0; }",
-            ".settings-dialog label { display: block; margin-bottom: 12px; }",
-            ".settings-dialog select,"
-            " .settings-dialog input[type=number]"
-            " { padding: 4px 8px; font-family: monospace; width: 100%;"
-            " box-sizing: border-box; }",
-            ".settings-dialog .btn-row { margin-top: 16px; text-align: right; }",
-            ".settings-dialog .btn-row button { padding: 6px 16px; margin-left: 8px;"
-            " cursor: pointer; }",
-            "</style>",
-        ]
-    )
-
-    @classmethod
-    def _css(cls) -> str:
-        return cls._CSS
-
-    _CONTROLS: str = "\n".join(
-        [
-            '<div class="controls">',
-            '<button id="prev">&lt; 前月</button>',
-            '<input type="month" id="month">',
-            '<button id="next">次月 &gt;</button>',
-            '<label style="margin-left: 15px; cursor: pointer;">'
-            '<input type="checkbox" id="noColon" style="margin-right: 4px;">'
-            "コロンなし</label>",
-            '<button id="settings-btn" style="margin-left: 15px; cursor: pointer; font-size: 18px; border: none; background: none; padding: 0;">&#9881;</button>',
-            '<span class="status" id="status"></span>',
-            "</div>",
-        ]
-    )
-
-    @classmethod
-    def _controls(cls) -> str:
-        return cls._CONTROLS
-
-    _SCRIPT_TEMPLATE: str = """<script>
-const INIT_NO_COLON = __NO_COLON_JS__;
-const INIT_MIN_EVENT = __INIT_MIN_EVENT_JS__;
-const INIT_MONTH = __INIT_MONTH_JS__;
-let noColon = INIT_NO_COLON;
-
-function formatTime(h, m) {
-    const sep = noColon ? '' : ':';
-    return String(h).padStart(2, '0') + sep + String(m).padStart(2, '0');
-}
-
-async function loadMonth(ym) {
-    const status = document.getElementById('status');
-    status.textContent = '読み込み中...';
-    let data;
-    try {
-        const res = await fetch(`/data/${ym}`);
-        data = await res.json();
-    } catch (e) {
-        status.textContent = 'エラー: データを取得できません';
-        return;
-    }
-    status.textContent = `勤務: ${data.rows.filter(r => r.hasWork).length}日`;
-    render(data.rows);
-}
-
-function formatDuration(sec) {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return m >= 1 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function render(rows) {
-    const table = document.getElementById('table');
-    let html = '<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>';
-    for (let h = 0; h < 24; h += 4) html += `<span>${String(h).padStart(2,'0')}:00</span>`;
-    html += '</div></td></tr>';
-    for (const row of rows) {
-        const holClass = row.holiday ? ' class="holiday"' : '';
-        const holMark = row.holiday ? '*' : '';
-        const dateCol = `${row.date} ${row.weekday}${holMark}`;
-        let timeCol = '', durCol = '', afkCol = '';
-        if (row.hasWork) {
-            timeCol = `${formatTime(row.startH, row.startM)} - ${formatTime(row.endH, row.endM)}`;
-            durCol = `(${row.span.toFixed(1)}h)`;
-            if (row.afk !== undefined) afkCol = `-${row.afk.toFixed(1)}h (max:-${row.maxGap.toFixed(1)}h)`;
-        }
-        const hourMarks = [4,8,12,16,20].map(h => `<div class="hour-mark" style="left:${(h/24)*100}%"></div>`).join('');
-        let eventBars = '';
-        for (const ev of row.events || []) {
-            const startSec = ev.startH * 3600 + ev.startM * 60 + ev.startS;
-            const endSec = ev.endH * 3600 + ev.endM * 60 + ev.endS;
-            const left = (startSec / 86400) * 100;
-            const width = Math.max(0.1, ((endSec - startSec) / 86400) * 100);
-            const startTime = `${String(ev.startH).padStart(2,'0')}:${String(ev.startM).padStart(2,'0')}:${String(ev.startS).padStart(2,'0')}`;
-            const endTime = `${String(ev.endH).padStart(2,'0')}:${String(ev.endM).padStart(2,'0')}:${String(ev.endS).padStart(2,'0')}`;
-            eventBars += `<div class="event" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;">
-<div class="tooltip">
-<div class="tooltip-row"><span class="tooltip-label">Start</span>${startTime}</div>
-<div class="tooltip-row"><span class="tooltip-label">Stop</span>${endTime}</div>
-<div class="tooltip-row"><span class="tooltip-label">Duration</span>${formatDuration(ev.duration)}</div>
-<div class="tooltip-row"><span class="tooltip-label">Data</span>${JSON.stringify(ev.data)}</div>
-</div></div>`;
-        }
-        html += `<tr${holClass}><td class="date">${dateCol}</td><td class="time">${timeCol}</td><td class="dur">${durCol}</td><td class="afk">${afkCol}</td><td class="timeline-cell"><div class="timeline"><div class="hour-marks">${hourMarks}</div>${eventBars}</div></td></tr>`;
-    }
-    table.innerHTML = html;
-    document.querySelectorAll('.event').forEach(el => {
-        const tooltip = el.querySelector('.tooltip');
-        el.addEventListener('mouseenter', () => {
-            tooltip.style.display = 'block';
-            tooltip.style.top = '22px';
-            tooltip.style.left = '0px';
-            tooltip.style.right = 'auto';
-            const rect = tooltip.getBoundingClientRect();
-            if (rect.right > window.innerWidth) { tooltip.style.left = 'auto'; tooltip.style.right = '0px'; }
-        });
-        el.addEventListener('mouseleave', () => tooltip.style.display = 'none');
-    });
-}
-
-function changeMonth(delta) {
-    const input = document.getElementById('month');
-    const [y, m] = input.value.split('-').map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    input.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    loadMonth(input.value);
-}
-
-// Settings dialog
-function createSettingsDialog() {
-    const overlay = document.createElement('div');
-    overlay.className = 'settings-overlay';
-    overlay.id = 'settings-overlay';
-    overlay.innerHTML = `
-        <div class="settings-dialog">
-            <h3>設定</h3>
-            <label>コロンなし
-                <input type="checkbox" id="s-no-colon">
-            </label>
-            <label>最小イベント秒数
-                <input type="number" id="s-min-event" min="0" step="1">
-            </label>
-            <label>AFKバケット
-                <select id="s-bucket"><option value="">自動選択</option></select>
-            </label>
-            <div class="btn-row">
-                <button id="s-cancel">キャンセル</button>
-                <button id="s-save">保存</button>
-            </div>
-        </div>`;
-    document.body.appendChild(overlay);
-    document.getElementById('s-cancel').addEventListener('click', () => overlay.style.display = 'none');
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.style.display = 'none'; });
-    document.getElementById('s-save').addEventListener('click', async () => {
-        const body = {
-            no_colon: document.getElementById('s-no-colon').checked,
-            min_event_seconds: parseInt(document.getElementById('s-min-event').value, 10),
-            bucket: document.getElementById('s-bucket').value || null
-        };
-        try {
-            const res = await fetch('/settings', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(body)
-            });
-            const saved = await res.json();
-            noColon = saved.no_colon;
-            document.getElementById('noColon').checked = noColon;
-            overlay.style.display = 'none';
-            loadMonth(document.getElementById('month').value);
-        } catch (e) {
-            alert('設定の保存に失敗しました');
-        }
-    });
-}
-
-async function openSettings() {
-    const overlay = document.getElementById('settings-overlay');
-    overlay.style.display = 'block';
-    try {
-        const [settingsRes, bucketsRes] = await Promise.all([
-            fetch('/settings'), fetch('/settings/buckets')
-        ]);
-        const settings = await settingsRes.json();
-        const buckets = await bucketsRes.json();
-        document.getElementById('s-no-colon').checked = settings.no_colon;
-        document.getElementById('s-min-event').value = settings.min_event_seconds;
-        const sel = document.getElementById('s-bucket');
-        sel.innerHTML = '<option value="">自動選択</option>';
-        for (const h of buckets) {
-            const opt = document.createElement('option');
-            opt.value = h;
-            opt.textContent = h;
-            if (settings.bucket === h) opt.selected = true;
-            sel.appendChild(opt);
-        }
-    } catch (e) {
-        // ignore load errors
-    }
-}
-
-document.getElementById('prev').addEventListener('click', () => changeMonth(-1));
-document.getElementById('next').addEventListener('click', () => changeMonth(1));
-document.getElementById('month').addEventListener('change', e => loadMonth(e.target.value));
-document.getElementById('noColon').addEventListener('change', e => {
-    noColon = e.target.checked;
-    loadMonth(document.getElementById('month').value);
-});
-
-createSettingsDialog();
-document.getElementById('settings-btn').addEventListener('click', openSettings);
-
-const now = new Date();
-const initMonth = INIT_MONTH || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-document.getElementById('month').value = initMonth;
-document.getElementById('noColon').checked = INIT_NO_COLON;
-loadMonth(initMonth);
-</script>"""
-
-    @classmethod
-    def _script(cls, no_colon_js: str, min_event_js: str, init_month_js: str) -> str:
-        return (
-            cls._SCRIPT_TEMPLATE.replace("__NO_COLON_JS__", no_colon_js)
-            .replace("__INIT_MIN_EVENT_JS__", min_event_js)
-            .replace("__INIT_MONTH_JS__", init_month_js)
-        )
 
 
 # MARK: - CLI — エントリポイント
@@ -1440,9 +1141,8 @@ class CLIMain:
     def _run_html(self, settings: Settings) -> None:
         AFKBucket.id()
         init_month: str | None = self._resolve_init_month()
-        html: str = WorkHTMLTemplate.render(settings, init_month)
         server: WorkHTTPServer = WorkHTTPServer()
-        server.start(html, self._args.quiet)
+        server.start(init_month, self._args.quiet)
 
     def _resolve_init_month(self) -> str | None:
         if self._args.month in ("this", "all"):
