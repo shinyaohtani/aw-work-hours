@@ -88,7 +88,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 settings.bucket = bucket if isinstance(bucket, str) else None
             settings.save()
             WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
-            AFKBucket._cached_id = None
+            AFKBucket.clear_cache()
             AFKBucket.set_preference(settings.bucket)
             body: bytes = json.dumps(
                 {
