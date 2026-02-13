@@ -985,10 +985,14 @@ class WorkHTMLTemplate:
         script: str = cls._script(no_colon_js, min_event_js, init_month_js)
         page: str = (
             f'<!DOCTYPE html>\n<html lang="ja">\n<head>\n'
-            f'<meta charset="UTF-8">\n<title>Work Hours</title>\n'
+            f'<meta charset="UTF-8">\n'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+            f"<title>Work Hours</title>\n"
             f"{css}\n</head>\n<body>\n"
-            f"<h2>Work Hours - Active Time Visualization</h2>\n"
+            f'<div class="page">\n'
+            f"<h2>Work Hours</h2>\n"
             f'{controls}\n<table id="table"></table>\n'
+            f"</div>\n"
             f"{script}\n</body>\n</html>\n"
         )
         return page
@@ -998,20 +1002,47 @@ class WorkHTMLTemplate:
     _CSS: str = "\n".join(
         [
             "<style>",
-            "body { font-family: monospace; margin: 20px; background: #fafafa; }",
-            ".controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }",
-            ".controls button { padding: 5px 15px; cursor: pointer; }",
-            '.controls input[type="month"] { padding: 5px; width: 100px; font-family: monospace; }',
-            '.controls input[type="checkbox"] { width: auto; }',
-            ".status { color: #888; margin-left: 10px; }",
+            "*, *::before, *::after { box-sizing: border-box; }",
+            "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',"
+            " Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f8f9fa;"
+            " color: #1a1a2e; }",
+            ".page { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }",
+            "h2 { font-size: 20px; font-weight: 600; margin: 0 0 20px 0;"
+            " color: #1a1a2e; letter-spacing: -0.3px; }",
+            # controls
+            ".controls { margin-bottom: 20px; display: flex;"
+            " align-items: center; gap: 8px; flex-wrap: wrap; }",
+            ".controls button { padding: 7px 14px; cursor: pointer;"
+            " border: 1px solid #d1d5db; border-radius: 6px; background: #fff;"
+            " font-size: 13px; color: #374151; transition: all 0.15s; }",
+            ".controls button:hover { background: #f3f4f6; border-color: #9ca3af; }",
+            ".controls button:active { background: #e5e7eb; }",
+            '.controls input[type="month"] { padding: 7px 10px; width: 120px;'
+            " font-family: inherit; font-size: 13px; border: 1px solid #d1d5db;"
+            " border-radius: 6px; background: #fff; color: #374151; outline: none; }",
+            '.controls input[type="month"]:focus { border-color: #6366f1;'
+            " box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }",
+            ".controls label { font-size: 13px; cursor: pointer;"
+            " display: flex; align-items: center; gap: 5px;"
+            " color: #4b5563; user-select: none; margin-left: 8px; }",
+            ".settings-btn { border: none !important; background: none !important;"
+            " font-size: 20px !important; padding: 4px 6px !important;"
+            " color: #6b7280; transition: color 0.15s; margin-left: 4px; }",
+            ".settings-btn:hover { color: #374151; background: none !important; }",
+            ".status { color: #9ca3af; margin-left: auto;"
+            " font-size: 13px; white-space: nowrap; }",
+            # table (data rows keep monospace for alignment)
             "table { border-collapse: collapse; width: 100%; }",
-            "td { padding: 2px 4px; vertical-align: middle; }",
+            "td { padding: 3px 6px; vertical-align: middle;"
+            " font-family: 'SF Mono', 'Cascadia Code', 'Fira Code',"
+            " Menlo, monospace; font-size: 13px; }",
             "td.date { white-space: nowrap; }",
             "td.time { white-space: nowrap; text-align: right; }",
             "td.dur { white-space: nowrap; text-align: right; }",
-            "td.afk { white-space: nowrap; text-align: right; color: #888; }",
+            "td.afk { white-space: nowrap; text-align: right; color: #9ca3af; }",
             "td.timeline-cell { width: 100%; }",
             ".holiday { color: #e57373; }",
+            # timeline / event / tooltip — unchanged
             ".timeline { position: relative; height: 18px; background: #f5f5f5;"
             " border: 1px solid #e0e0e0; border-radius: 3px; }",
             ".event { position: absolute; height: 100%; background: #a5d6a7;"
@@ -1030,21 +1061,44 @@ class WorkHTMLTemplate:
             ".hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }",
             ".hour-labels td div { display: flex; }",
             ".hour-labels td div span { flex: 1; text-align: left; }",
+            # settings dialog
             ".settings-overlay { display: none; position: fixed; top: 0; left: 0;"
-            " width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 200; }",
+            " width: 100%; height: 100%; background: rgba(0,0,0,0.3);"
+            " z-index: 200; backdrop-filter: blur(2px); }",
             ".settings-dialog { position: fixed; top: 50%; left: 50%;"
             " transform: translate(-50%, -50%); background: #fff;"
-            " border-radius: 8px; padding: 24px; z-index: 201;"
-            " box-shadow: 0 4px 20px rgba(0,0,0,0.3); min-width: 320px; }",
-            ".settings-dialog h3 { margin: 0 0 16px 0; }",
-            ".settings-dialog label { display: block; margin-bottom: 12px; }",
+            " border-radius: 12px; padding: 28px 32px; z-index: 201;"
+            " box-shadow: 0 8px 32px rgba(0,0,0,0.12);"
+            " min-width: 340px; max-width: 400px; }",
+            ".settings-dialog h3 { margin: 0 0 20px 0; font-size: 16px;"
+            " font-weight: 600; color: #1a1a2e; }",
+            ".settings-dialog .field { margin-bottom: 16px; }",
+            ".settings-dialog .field-label { display: block; font-size: 12px;"
+            " font-weight: 500; color: #6b7280; margin-bottom: 6px;"
+            " text-transform: uppercase; letter-spacing: 0.4px; }",
+            ".settings-dialog .field-check { display: flex; align-items: center;"
+            " gap: 8px; font-size: 14px; color: #374151; cursor: pointer; }",
             ".settings-dialog select,"
             " .settings-dialog input[type=number]"
-            " { padding: 4px 8px; font-family: monospace; width: 100%;"
-            " box-sizing: border-box; }",
-            ".settings-dialog .btn-row { margin-top: 16px; text-align: right; }",
-            ".settings-dialog .btn-row button { padding: 6px 16px; margin-left: 8px;"
-            " cursor: pointer; }",
+            " { padding: 8px 12px; font-family: inherit; font-size: 14px;"
+            " border: 1px solid #d1d5db; border-radius: 8px; width: 100%;"
+            " background: #fff; color: #374151; outline: none;"
+            " transition: border-color 0.15s, box-shadow 0.15s; }",
+            ".settings-dialog select:focus,"
+            " .settings-dialog input[type=number]:focus"
+            " { border-color: #6366f1;"
+            " box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }",
+            ".settings-dialog .btn-row { margin-top: 24px; display: flex;"
+            " justify-content: flex-end; gap: 8px; }",
+            ".settings-dialog .btn-row button { padding: 8px 20px; font-size: 14px;"
+            " border-radius: 8px; cursor: pointer; font-weight: 500;"
+            " transition: all 0.15s; }",
+            ".settings-dialog .btn-cancel { border: 1px solid #d1d5db;"
+            " background: #fff; color: #374151; }",
+            ".settings-dialog .btn-cancel:hover { background: #f3f4f6; }",
+            ".settings-dialog .btn-save { border: 1px solid #4f46e5;"
+            " background: #4f46e5; color: #fff; }",
+            ".settings-dialog .btn-save:hover { background: #4338ca; }",
             "</style>",
         ]
     )
@@ -1056,13 +1110,11 @@ class WorkHTMLTemplate:
     _CONTROLS: str = "\n".join(
         [
             '<div class="controls">',
-            '<button id="prev">&lt; 前月</button>',
+            '<button id="prev">&#8249; 前月</button>',
             '<input type="month" id="month">',
-            '<button id="next">次月 &gt;</button>',
-            '<label style="margin-left: 15px; cursor: pointer;">'
-            '<input type="checkbox" id="noColon" style="margin-right: 4px;">'
-            "コロンなし</label>",
-            '<button id="settings-btn" style="margin-left: 15px; cursor: pointer; font-size: 18px; border: none; background: none; padding: 0;">&#9881;</button>',
+            '<button id="next">次月 &#8250;</button>',
+            "<label>" '<input type="checkbox" id="noColon">' "コロンなし</label>",
+            '<button id="settings-btn" class="settings-btn">&#9881;</button>',
             '<span class="status" id="status"></span>',
             "</div>",
         ]
@@ -1169,18 +1221,23 @@ function createSettingsDialog() {
     overlay.innerHTML = `
         <div class="settings-dialog">
             <h3>設定</h3>
-            <label>コロンなし
-                <input type="checkbox" id="s-no-colon">
-            </label>
-            <label>最小イベント秒数
+            <div class="field">
+                <label class="field-check">
+                    <input type="checkbox" id="s-no-colon">
+                    コロンなし表示
+                </label>
+            </div>
+            <div class="field">
+                <span class="field-label">最小イベント秒数</span>
                 <input type="number" id="s-min-event" min="0" step="1">
-            </label>
-            <label>AFKバケット
+            </div>
+            <div class="field">
+                <span class="field-label">AFKバケット</span>
                 <select id="s-bucket"><option value="">自動選択</option></select>
-            </label>
+            </div>
             <div class="btn-row">
-                <button id="s-cancel">キャンセル</button>
-                <button id="s-save">保存</button>
+                <button id="s-cancel" class="btn-cancel">キャンセル</button>
+                <button id="s-save" class="btn-save">保存</button>
             </div>
         </div>`;
     document.body.appendChild(overlay);
