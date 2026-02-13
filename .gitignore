@@ -2,6 +2,7 @@
 *.png
 .claude/
 holiday_cache/
+settings.json
 work.html
 __pycache__/
 .pytest_cache/

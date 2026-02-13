@@ -68,6 +68,53 @@ class HTMLEvent(TypedDict):
     data: dict[str, str]
 
 
+class Settings:
+    """永続化設定（settings.json）"""
+
+    _PATH: Path = Path(__file__).parent / "settings.json"
+
+    def __init__(self) -> None:
+        self._data: dict[str, object] = self._load()
+
+    def _load(self) -> dict[str, object]:
+        try:
+            with open(self._PATH, encoding="utf-8") as f:
+                return json.load(f)  # type: ignore[no-any-return]
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def save(self) -> None:
+        with open(self._PATH, "w", encoding="utf-8") as f:
+            json.dump(self._data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+
+    @property
+    def no_colon(self) -> bool:
+        return bool(self._data.get("no_colon", False))
+
+    @no_colon.setter
+    def no_colon(self, value: bool) -> None:
+        self._data["no_colon"] = value
+
+    @property
+    def min_event_seconds(self) -> int:
+        v: object = self._data.get("min_event_seconds", 150)
+        return int(v) if isinstance(v, (int, float, str)) else 150
+
+    @min_event_seconds.setter
+    def min_event_seconds(self, value: int) -> None:
+        self._data["min_event_seconds"] = value
+
+    @property
+    def bucket(self) -> str | None:
+        v: object = self._data.get("bucket")
+        return str(v) if v is not None else None
+
+    @bucket.setter
+    def bucket(self, value: str | None) -> None:
+        self._data["bucket"] = value
+
+
 # MARK: - DOMAIN — ドメインロジック（勤務判定・集計）
 #
 #  公開API:
@@ -766,10 +813,74 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path.startswith("/data/"):
             self._handle_data()
+        elif self.path == "/settings":
+            self._handle_get_settings()
+        elif self.path == "/settings/buckets":
+            self._handle_get_buckets()
         elif self.path.startswith("/api/"):
             self._proxy_api()
         else:
             super().do_GET()
+
+    def do_POST(self) -> None:
+        if self.path == "/settings":
+            self._handle_post_settings()
+        else:
+            self.send_error(404)
+
+    def _handle_get_settings(self) -> None:
+        try:
+            settings: Settings = Settings()
+            body: bytes = json.dumps(
+                {
+                    "no_colon": settings.no_colon,
+                    "min_event_seconds": settings.min_event_seconds,
+                    "bucket": settings.bucket,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self._send_json(body)
+        except Exception as e:
+            self.send_error(500, f"Error: {e}")
+
+    def _handle_get_buckets(self) -> None:
+        try:
+            afk_ids: list[str] = AFKBucket._fetch_ids()
+            hostnames: list[str] = [
+                bid.replace("aw-watcher-afk_", "") for bid in afk_ids
+            ]
+            body: bytes = json.dumps(hostnames, ensure_ascii=False).encode("utf-8")
+            self._send_json(body)
+        except Exception as e:
+            self.send_error(500, f"Error: {e}")
+
+    def _handle_post_settings(self) -> None:
+        try:
+            length: int = int(self.headers.get("Content-Length", 0))
+            raw: bytes = self.rfile.read(length)
+            data: dict[str, object] = json.loads(raw.decode("utf-8"))
+            settings: Settings = Settings()
+            if "no_colon" in data:
+                settings.no_colon = bool(data["no_colon"])
+            if "min_event_seconds" in data:
+                settings.min_event_seconds = int(data["min_event_seconds"])  # type: ignore[arg-type]
+            if "bucket" in data:
+                settings.bucket = str(data["bucket"]) if data["bucket"] else None
+            settings.save()
+            WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
+            AFKBucket._cached_id = None
+            AFKBucket.set_preference(settings.bucket)
+            body: bytes = json.dumps(
+                {
+                    "no_colon": settings.no_colon,
+                    "min_event_seconds": settings.min_event_seconds,
+                    "bucket": settings.bucket,
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self._send_json(body)
+        except Exception as e:
+            self.send_error(500, f"Error: {e}")
 
     def _handle_data(self) -> None:
         try:
@@ -860,16 +971,17 @@ class WorkHTMLTemplate:
     """HTML出力テンプレート（CSS/JS含む）"""
 
     @classmethod
-    def render(cls, no_colon: bool, init_month: str | None) -> str:
-        no_colon_js: str = "true" if no_colon else "false"
+    def render(cls, settings: Settings, init_month: str | None) -> str:
+        no_colon_js: str = "true" if settings.no_colon else "false"
+        min_event_js: str = str(settings.min_event_seconds)
         init_month_js: str = f"'{init_month}'" if init_month else "null"
-        return cls._html(no_colon_js, init_month_js)
+        return cls._html(no_colon_js, min_event_js, init_month_js)
 
     @classmethod
-    def _html(cls, no_colon_js: str, init_month_js: str) -> str:
+    def _html(cls, no_colon_js: str, min_event_js: str, init_month_js: str) -> str:
         css: str = cls._css()
         controls: str = cls._controls()
-        script: str = cls._script(no_colon_js, init_month_js)
+        script: str = cls._script(no_colon_js, min_event_js, init_month_js)
         page: str = (
             f'<!DOCTYPE html>\n<html lang="ja">\n<head>\n'
             f'<meta charset="UTF-8">\n<title>Work Hours</title>\n'
@@ -917,6 +1029,21 @@ class WorkHTMLTemplate:
             ".hour-labels td { font-size: 11px; color: #888; padding: 0 4px 4px 4px; }",
             ".hour-labels td div { display: flex; }",
             ".hour-labels td div span { flex: 1; text-align: left; }",
+            ".settings-overlay { display: none; position: fixed; top: 0; left: 0;"
+            " width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 200; }",
+            ".settings-dialog { position: fixed; top: 50%; left: 50%;"
+            " transform: translate(-50%, -50%); background: #fff;"
+            " border-radius: 8px; padding: 24px; z-index: 201;"
+            " box-shadow: 0 4px 20px rgba(0,0,0,0.3); min-width: 320px; }",
+            ".settings-dialog h3 { margin: 0 0 16px 0; }",
+            ".settings-dialog label { display: block; margin-bottom: 12px; }",
+            ".settings-dialog select,"
+            " .settings-dialog input[type=number]"
+            " { padding: 4px 8px; font-family: monospace; width: 100%;"
+            " box-sizing: border-box; }",
+            ".settings-dialog .btn-row { margin-top: 16px; text-align: right; }",
+            ".settings-dialog .btn-row button { padding: 6px 16px; margin-left: 8px;"
+            " cursor: pointer; }",
             "</style>",
         ]
     )
@@ -934,6 +1061,7 @@ class WorkHTMLTemplate:
             '<label style="margin-left: 15px; cursor: pointer;">'
             '<input type="checkbox" id="noColon" style="margin-right: 4px;">'
             "コロンなし</label>",
+            '<button id="settings-btn" style="margin-left: 15px; cursor: pointer; font-size: 18px; border: none; background: none; padding: 0;">&#9881;</button>',
             '<span class="status" id="status"></span>',
             "</div>",
         ]
@@ -945,6 +1073,7 @@ class WorkHTMLTemplate:
 
     _SCRIPT_TEMPLATE: str = """<script>
 const INIT_NO_COLON = __NO_COLON_JS__;
+const INIT_MIN_EVENT = __INIT_MIN_EVENT_JS__;
 const INIT_MONTH = __INIT_MONTH_JS__;
 let noColon = INIT_NO_COLON;
 
@@ -1031,6 +1160,79 @@ function changeMonth(delta) {
     loadMonth(input.value);
 }
 
+// Settings dialog
+function createSettingsDialog() {
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-overlay';
+    overlay.id = 'settings-overlay';
+    overlay.innerHTML = `
+        <div class="settings-dialog">
+            <h3>設定</h3>
+            <label>コロンなし
+                <input type="checkbox" id="s-no-colon">
+            </label>
+            <label>最小イベント秒数
+                <input type="number" id="s-min-event" min="0" step="1">
+            </label>
+            <label>AFKバケット
+                <select id="s-bucket"><option value="">自動選択</option></select>
+            </label>
+            <div class="btn-row">
+                <button id="s-cancel">キャンセル</button>
+                <button id="s-save">保存</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    document.getElementById('s-cancel').addEventListener('click', () => overlay.style.display = 'none');
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.style.display = 'none'; });
+    document.getElementById('s-save').addEventListener('click', async () => {
+        const body = {
+            no_colon: document.getElementById('s-no-colon').checked,
+            min_event_seconds: parseInt(document.getElementById('s-min-event').value, 10),
+            bucket: document.getElementById('s-bucket').value || null
+        };
+        try {
+            const res = await fetch('/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const saved = await res.json();
+            noColon = saved.no_colon;
+            document.getElementById('noColon').checked = noColon;
+            overlay.style.display = 'none';
+            loadMonth(document.getElementById('month').value);
+        } catch (e) {
+            alert('設定の保存に失敗しました');
+        }
+    });
+}
+
+async function openSettings() {
+    const overlay = document.getElementById('settings-overlay');
+    overlay.style.display = 'block';
+    try {
+        const [settingsRes, bucketsRes] = await Promise.all([
+            fetch('/settings'), fetch('/settings/buckets')
+        ]);
+        const settings = await settingsRes.json();
+        const buckets = await bucketsRes.json();
+        document.getElementById('s-no-colon').checked = settings.no_colon;
+        document.getElementById('s-min-event').value = settings.min_event_seconds;
+        const sel = document.getElementById('s-bucket');
+        sel.innerHTML = '<option value="">自動選択</option>';
+        for (const h of buckets) {
+            const opt = document.createElement('option');
+            opt.value = h;
+            opt.textContent = h;
+            if (settings.bucket === h) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    } catch (e) {
+        // ignore load errors
+    }
+}
+
 document.getElementById('prev').addEventListener('click', () => changeMonth(-1));
 document.getElementById('next').addEventListener('click', () => changeMonth(1));
 document.getElementById('month').addEventListener('change', e => loadMonth(e.target.value));
@@ -1038,6 +1240,9 @@ document.getElementById('noColon').addEventListener('change', e => {
     noColon = e.target.checked;
     loadMonth(document.getElementById('month').value);
 });
+
+createSettingsDialog();
+document.getElementById('settings-btn').addEventListener('click', openSettings);
 
 const now = new Date();
 const initMonth = INIT_MONTH || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -1047,9 +1252,11 @@ loadMonth(initMonth);
 </script>"""
 
     @classmethod
-    def _script(cls, no_colon_js: str, init_month_js: str) -> str:
-        return cls._SCRIPT_TEMPLATE.replace("__NO_COLON_JS__", no_colon_js).replace(
-            "__INIT_MONTH_JS__", init_month_js
+    def _script(cls, no_colon_js: str, min_event_js: str, init_month_js: str) -> str:
+        return (
+            cls._SCRIPT_TEMPLATE.replace("__NO_COLON_JS__", no_colon_js)
+            .replace("__INIT_MIN_EVENT_JS__", min_event_js)
+            .replace("__INIT_MONTH_JS__", init_month_js)
         )
 
 
@@ -1088,6 +1295,12 @@ class CLIArgs:
         p.add_argument("--html", action="store_true", help="HTML形式でブラウザ表示")
         p.add_argument(
             "--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）"
+        )
+        p.add_argument(
+            "--min-event",
+            type=int,
+            default=None,
+            help="最小イベント秒数（デフォルト: 150）",
         )
         return p.parse_args()
 
@@ -1129,6 +1342,10 @@ class CLIArgs:
     def bucket(self) -> str | None:
         return self._args.bucket
 
+    @property
+    def min_event(self) -> int | None:
+        return self._args.min_event
+
 
 # MARK: CLIOutput
 
@@ -1136,8 +1353,9 @@ class CLIArgs:
 class CLIOutput:
     """CLI出力処理"""
 
-    def __init__(self, args: CLIArgs) -> None:
+    def __init__(self, args: CLIArgs, settings: Settings) -> None:
         self._args: CLIArgs = args
+        self._settings: Settings = settings
 
     def run(
         self, calendar: WorkCalendar, daily_work: DailyWork, period: MonthPeriod
@@ -1172,7 +1390,7 @@ class CLIOutput:
             daily_work.gaps,
             period,
             holidays,
-            self._args.no_colon,
+            self._settings.no_colon,
         )
         print(text.content(), end="")
 
@@ -1192,19 +1410,36 @@ class CLIMain:
 
     def run(self) -> None:
         try:
-            AFKBucket.set_preference(self._args.bucket)
+            settings: Settings = Settings()
+            self._apply_args(settings)
+            WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
+            AFKBucket.set_preference(settings.bucket)
             if self._args.html:
-                self._run_html()
+                self._run_html(settings)
             else:
-                self._run_text()
+                self._run_text(settings)
         except (CLIError, APIConnectionError) as e:
             print(str(e), file=sys.stderr)
             sys.exit(1)
 
-    def _run_html(self) -> None:
+    def _apply_args(self, settings: Settings) -> None:
+        changed: bool = False
+        if self._args.no_colon:
+            settings.no_colon = True
+            changed = True
+        if self._args.min_event is not None:
+            settings.min_event_seconds = self._args.min_event
+            changed = True
+        if self._args.bucket is not None:
+            settings.bucket = self._args.bucket
+            changed = True
+        if changed:
+            settings.save()
+
+    def _run_html(self, settings: Settings) -> None:
         AFKBucket.id()
         init_month: str | None = self._resolve_init_month()
-        html: str = WorkHTMLTemplate.render(self._args.no_colon, init_month)
+        html: str = WorkHTMLTemplate.render(settings, init_month)
         server: WorkHTTPServer = WorkHTTPServer()
         server.start(html, self._args.quiet)
 
@@ -1216,7 +1451,7 @@ class CLIMain:
             return f"{dates[0].year}-{dates[0].month:02d}"
         return None
 
-    def _run_text(self) -> None:
+    def _run_text(self, settings: Settings) -> None:
         period: MonthPeriod = MonthPeriod.parse(self._args.month)
         labels: dict[str, str] = {"all": "全期間", "this": "今月", "last": "先月"}
         self._status(f"対象期間: {labels.get(self._args.month, self._args.month)}")
@@ -1224,7 +1459,7 @@ class CLIMain:
         calendar, daily_work, events = WorkCalendar.from_period(period)
         self._status(f"取得イベント数: {len(events.raw)}")
         self._status(f"勤務日数: {calendar.days}")
-        output: CLIOutput = CLIOutput(self._args)
+        output: CLIOutput = CLIOutput(self._args, settings)
         output.run(calendar, daily_work, period)
 
     def _status(self, msg: str) -> None:
