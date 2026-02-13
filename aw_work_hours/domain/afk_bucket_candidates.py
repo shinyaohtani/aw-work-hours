@@ -80,5 +80,6 @@ class AFKBucketCandidates:
                         _TIMEZONE
                     )
         except (urllib.error.URLError, KeyError, IndexError):
+            # Ignore failures when fetching/parsing the last event and treat as "no data"
             pass
         return None
