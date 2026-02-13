@@ -26,6 +26,8 @@ def _reset_bucket_state(aw_module):  # type: ignore[no-untyped-def]
     """AFKBucket のクラス変数をテスト間でリセット"""
     aw_module.AFKBucket._cached_id = None
     aw_module.AFKBucket._preference = None
+    aw_module.WorkRule.MIN_EVENT_SECONDS = 150
     yield
     aw_module.AFKBucket._cached_id = None
     aw_module.AFKBucket._preference = None
+    aw_module.WorkRule.MIN_EVENT_SECONDS = 150
