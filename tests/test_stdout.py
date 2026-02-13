@@ -5,11 +5,17 @@ fixtures/ 内のAPIレスポンスを使い、ActivityWatch APIに接続せず�
 """
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from aw_work_hours.domain.holiday_calendar import HolidayCalendar
+from aw_work_hours.domain.month_period import MonthPeriod
+from aw_work_hours.domain.work_calendar import WorkCalendar
+from aw_work_hours.output.work_text import WorkText
 
 _FIXTURES: Path = Path(__file__).parent.parent / "fixtures"
 _MONTHS: list[str] = [f"2025-{m:02d}" for m in range(1, 13)] + ["2026-01"]
@@ -19,13 +25,11 @@ def _load_fixture(name: str) -> bytes:
     return (_FIXTURES / name).read_bytes()
 
 
-def _mock_urlopen(month: str):  # type: ignore[no-untyped-def]
+def _mock_urlopen(month: str) -> Callable[..., MagicMock]:
     """urllib.request.urlopen の代替: fixtureからレスポンスを返す"""
     buckets_data: bytes = _load_fixture("api/buckets.json")
     events_data: bytes = _load_fixture(f"api/events/{month}.json")
-    events_first: bytes = json.dumps(
-        json.loads(events_data)[:1]
-    ).encode()
+    events_first: bytes = json.dumps(json.loads(events_data)[:1]).encode()
 
     def side_effect(url: str, **kwargs: object) -> MagicMock:
         resp: MagicMock = MagicMock()
@@ -47,18 +51,19 @@ def _mock_urlopen(month: str):  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.parametrize("month", _MONTHS)
-def test_stdout(month: str, aw_module: ModuleType) -> None:
+def test_stdout(month: str) -> None:
     """リファクタリング後のstdout出力がfixture期待値と一致する"""
     expected: str = (_FIXTURES / "expected" / f"{month}.txt").read_text()
 
-    with patch.object(
-        aw_module.urllib.request, "urlopen", side_effect=_mock_urlopen(month)
+    with patch(
+        "urllib.request.urlopen",
+        side_effect=_mock_urlopen(month),
     ):
-        period = aw_module.MonthPeriod.parse(month)
-        calendar, daily_work, _events = aw_module.WorkCalendar.from_period(period)
-        holidays = aw_module.HolidayCalendar()
+        period = MonthPeriod.parse(month)
+        calendar, daily_work, _events = WorkCalendar.from_period(period)
+        holidays = HolidayCalendar()
         holidays._cache_dir = _FIXTURES / "holidays"
-        text = aw_module.WorkText(
+        text = WorkText(
             calendar.daily,
             daily_work.active,
             daily_work.gaps,
