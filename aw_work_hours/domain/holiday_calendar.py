@@ -1,10 +1,13 @@
 """日本の祝日カレンダー（キャッシュ付き）"""
 
 import json
-import ssl
 import urllib.error
 import urllib.request
 from datetime import date
+
+import truststore
+
+truststore.inject_into_ssl()
 
 from .. import PROJECT_DIR
 
@@ -40,10 +43,7 @@ class HolidayCalendar:
     def _fetch_and_cache(self, year: int, cache_file) -> set[date]:  # type: ignore[type-arg]
         url: str = self._API_URL.format(year=year)
         try:
-            ctx: ssl.SSLContext = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(url, timeout=10, context=ctx) as resp:
+            with urllib.request.urlopen(url, timeout=10) as resp:
                 raw: bytes = resp.read()
                 holidays: dict[str, str] = json.loads(raw.decode("utf-8"))
             self._cache_dir.mkdir(exist_ok=True)

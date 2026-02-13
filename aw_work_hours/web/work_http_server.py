@@ -2,9 +2,9 @@
 
 import http.server
 import socket
-import subprocess
 import sys
 import threading
+import webbrowser
 
 from .. import PROJECT_DIR
 from .work_http_handler import WorkHTTPHandler
@@ -33,7 +33,7 @@ class WorkHTTPServer:
         WorkHTTPHandler.directory = self._WEB_DIR
 
         def serve() -> None:
-            with http.server.HTTPServer(("", self._port), WorkHTTPHandler) as httpd:
+            with http.server.HTTPServer(("127.0.0.1", self._port), WorkHTTPHandler) as httpd:
                 httpd.serve_forever()
 
         threading.Thread(target=serve, daemon=True).start()
@@ -45,7 +45,7 @@ class WorkHTTPServer:
         query: str = f"?month={init_month}" if init_month else ""
         url: str = f"http://localhost:{self._port}/{query}"
         self._status(f"ブラウザで開きます: {url}", quiet)
-        subprocess.run(["open", url], check=False)
+        webbrowser.open(url)
         self._status("Ctrl+C で終了", quiet)
         try:
             while True:

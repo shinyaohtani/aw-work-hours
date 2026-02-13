@@ -72,13 +72,16 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             length: int = int(self.headers.get("Content-Length", 0))
             raw: bytes = self.rfile.read(length)
             data: dict[str, object] = json.loads(raw.decode("utf-8"))
+            if err := self._validate_settings(data):
+                self.send_error(400, err)
+                return
             settings: Settings = Settings()
             if "no_colon" in data:
-                settings.no_colon = bool(data["no_colon"])
+                settings.no_colon = data["no_colon"]  # type: ignore[assignment]
             if "min_event_seconds" in data:
-                settings.min_event_seconds = int(data["min_event_seconds"])  # type: ignore[arg-type]
+                settings.min_event_seconds = data["min_event_seconds"]  # type: ignore[assignment]
             if "bucket" in data:
-                settings.bucket = str(data["bucket"]) if data["bucket"] else None
+                settings.bucket = data["bucket"]  # type: ignore[assignment]
             settings.save()
             WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
             AFKBucket._cached_id = None
@@ -94,6 +97,20 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(body)
         except Exception as e:
             self.send_error(500, f"Error: {e}")
+
+    @staticmethod
+    def _validate_settings(data: dict[str, object]) -> str | None:
+        if "no_colon" in data and not isinstance(data["no_colon"], bool):
+            return "no_colon must be a boolean"
+        if "min_event_seconds" in data:
+            v = data["min_event_seconds"]
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                return "min_event_seconds must be a non-negative integer"
+        if "bucket" in data:
+            v = data["bucket"]
+            if v is not None and not isinstance(v, str):
+                return "bucket must be a string or null"
+        return None
 
     def _handle_data(self) -> None:
         try:

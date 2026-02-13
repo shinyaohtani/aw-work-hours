@@ -6,7 +6,6 @@ from datetime import date
 from ..types import APIConnectionError, CLIError
 from ..settings import Settings
 from ..domain.afk_bucket import AFKBucket
-from ..domain.daily_work import DailyWork
 from ..domain.month_period import MonthPeriod
 from ..domain.work_calendar import WorkCalendar
 from ..domain.work_rule import WorkRule
