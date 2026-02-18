@@ -52,8 +52,6 @@ class WorkText:
     def _format_work_day(self, d: date, prefix: str, is_holiday: bool) -> str:
         s, e = self._daily[d]
         span: float = WorkRule.span_hours(s, e)
-        if round(span, 1) == 0:
-            return prefix
         active: float = self._active.get(d, 0) / 3600
         afk: float = span - active
         spacing: str = "  " if is_holiday else "   "
