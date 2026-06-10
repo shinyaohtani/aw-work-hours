@@ -24,6 +24,10 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
         pass
 
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        super().end_headers()
+
     def do_GET(self) -> None:
         if self.path.startswith("/data/"):
             self._handle_data()

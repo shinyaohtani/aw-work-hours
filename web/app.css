@@ -35,3 +35,13 @@ td.timeline-cell { width: 100%; }
 
 /* Holiday */
 .holiday { color: #e57373; }
+
+/* Clickable time */
+.time-copy { cursor: pointer; padding: 0 3px; border-radius: 3px; }
+.time-copy:hover { background: #fef3c7; }
+
+/* Toast */
+#toast { position: fixed; left: 50%; bottom: 2rem; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 6px; background: #111827; color: #fff;
+  font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 300; }

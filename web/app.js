@@ -5,6 +5,39 @@ function formatTime(h, m) {
     return String(h).padStart(2, '0') + sep + String(m).padStart(2, '0');
 }
 
+function rawTime(h, m) {
+    return String(h).padStart(2, '0') + String(m).padStart(2, '0');
+}
+
+let toastTimer = null;
+function showToast(msg) {
+    let el = document.getElementById('toast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'toast';
+        el.className = 'fixed left-1/2 -translate-x-1/2 bottom-8 px-4 py-2 rounded-md bg-gray-900 text-white text-sm shadow-lg opacity-0 transition-opacity duration-200 pointer-events-none z-[300]';
+        document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 1200);
+}
+
+async function copyTime(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (e) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+    }
+    showToast('時刻がクリップボードにコピーされました');
+}
+
 function formatDuration(sec) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
@@ -37,7 +70,9 @@ function render(rows) {
         const dateCol = `${row.date} ${row.weekday}${holMark}`;
         let timeCol = '', durCol = '', afkCol = '';
         if (row.hasWork) {
-            timeCol = `${formatTime(row.startH, row.startM)} - ${formatTime(row.endH, row.endM)}`;
+            const startRaw = rawTime(row.startH, row.startM);
+            const endRaw = rawTime(row.endH, row.endM);
+            timeCol = `<span class="time-copy cursor-pointer hover:bg-yellow-100 rounded px-0.5" data-copy="${startRaw}">${formatTime(row.startH, row.startM)}</span> - <span class="time-copy cursor-pointer hover:bg-yellow-100 rounded px-0.5" data-copy="${endRaw}">${formatTime(row.endH, row.endM)}</span>`;
             durCol = `(${row.span.toFixed(1)}h)`;
             if (row.afk !== undefined) afkCol = `-${row.afk.toFixed(1)}h (max:-${row.maxGap.toFixed(1)}h)`;
         }
@@ -61,6 +96,9 @@ function render(rows) {
         html += `<tr${holClass}><td class="date">${dateCol}</td><td class="time">${timeCol}</td><td class="dur">${durCol}</td><td class="afk">${afkCol}</td><td class="timeline-cell"><div class="timeline"><div class="hour-marks">${hourMarks}</div>${eventBars}</div></td></tr>`;
     }
     table.innerHTML = html;
+    document.querySelectorAll('.time-copy').forEach(el => {
+        el.addEventListener('click', () => copyTime(el.dataset.copy));
+    });
     document.querySelectorAll('.event').forEach(el => {
         const tooltip = el.querySelector('.tooltip');
         el.addEventListener('mouseenter', () => {
