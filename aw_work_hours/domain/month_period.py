@@ -8,32 +8,31 @@ from ..types import _TIMEZONE, CLIError
 class MonthPeriod:
     """月の期間"""
 
-    def __init__(self, start: datetime | None, end: datetime | None) -> None:
-        self._start: datetime | None = start
-        self._end: datetime | None = end
+    def __init__(self, month_str: str) -> None:
+        self._month_str: str = month_str
+        self._start: datetime | None = None
+        self._end: datetime | None = None
+        self._resolve()
 
-    @classmethod
-    def parse(cls, month_str: str) -> "MonthPeriod":
-        if month_str == "all":
-            return cls(None, None)
-        year, month = cls._parse_year_month(month_str)
-        start: datetime = datetime(year, month, 1, tzinfo=_TIMEZONE)
+    def _resolve(self) -> None:
+        if self._month_str == "all":
+            return
+        year, month = self._year_month()
+        self._start = datetime(year, month, 1, tzinfo=_TIMEZONE)
         end_year, end_month = (year + 1, 1) if month == 12 else (year, month + 1)
-        end: datetime = datetime(end_year, end_month, 1, tzinfo=_TIMEZONE)
-        return cls(start, end)
+        self._end = datetime(end_year, end_month, 1, tzinfo=_TIMEZONE)
 
-    @classmethod
-    def _parse_year_month(cls, month_str: str) -> tuple[int, int]:
+    def _year_month(self) -> tuple[int, int]:
         now: datetime = datetime.now(_TIMEZONE)
-        if month_str == "this":
+        if self._month_str == "this":
             return now.year, now.month
-        if month_str == "last":
+        if self._month_str == "last":
             return (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
         try:
-            year, month = map(int, month_str.split("-"))
+            year, month = map(int, self._month_str.split("-"))
             return year, month
         except ValueError:
-            raise CLIError(f"エラー: 無効な月指定です: {month_str}")
+            raise CLIError(f"エラー: 無効な月指定です: {self._month_str}")
 
     @property
     def iso(self) -> tuple[str | None, str | None]:

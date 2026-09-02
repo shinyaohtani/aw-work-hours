@@ -12,9 +12,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from aw_work_hours.domain.afk_bucket import AFKBucket
 from aw_work_hours.domain.holiday_calendar import HolidayCalendar
 from aw_work_hours.domain.month_period import MonthPeriod
-from aw_work_hours.domain.work_calendar import WorkCalendar
+from aw_work_hours.domain.work_period_report import WorkPeriodReport
 from aw_work_hours.output.work_text import WorkText
 
 _FIXTURES: Path = Path(__file__).parent.parent / "fixtures"
@@ -59,17 +60,11 @@ def test_stdout(month: str) -> None:
         "urllib.request.urlopen",
         side_effect=_mock_urlopen(month),
     ):
-        period = MonthPeriod.parse(month)
-        calendar, daily_work, _events = WorkCalendar.from_period(period)
+        period = MonthPeriod(month)
+        report = WorkPeriodReport(period, AFKBucket(None), 150)
         holidays = HolidayCalendar()
         holidays._cache_dir = _FIXTURES / "holidays"
-        text = WorkText(
-            calendar.daily,
-            daily_work.active,
-            daily_work.gaps,
-            period,
-            holidays,
-        )
+        text = WorkText(report, holidays)
         actual: str = text.content()
 
     assert actual == expected, (

@@ -1,12 +1,9 @@
 """AFKバケットの候補群"""
 
-import json
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime
 
-from ..types import _API_BASE, _TIMEZONE, AWEvent, CLIError
+from ..types import _TIMEZONE, CLIError
 from .afk_bucket_id import AFKBucketId
 
 
@@ -52,7 +49,7 @@ class AFKBucketCandidates:
 
     def _by_latest(self) -> AFKBucketId:
         ranked: list[tuple[AFKBucketId, datetime | None]] = [
-            (b, self._last_event(b.raw)) for b in self._afk_ids
+            (b, b.last_event_at) for b in self._afk_ids
         ]
         ranked.sort(
             key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True
@@ -69,17 +66,3 @@ class AFKBucketCandidates:
         print("最新のデータを持つバケットを自動選択しました。", file=sys.stderr)
         print("特定のバケットを使う場合: --bucket=PC名", file=sys.stderr)
         return ranked[0][0]
-
-    def _last_event(self, bucket_id: str) -> datetime | None:
-        url: str = f"{_API_BASE}/buckets/{bucket_id}/events?limit=1"
-        try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
-                events: list[AWEvent] = json.loads(resp.read().decode())
-                if events:
-                    return datetime.fromisoformat(events[0]["timestamp"]).astimezone(
-                        _TIMEZONE
-                    )
-        except (urllib.error.URLError, KeyError, IndexError):
-            # Ignore failures when fetching/parsing the last event and treat as "no data"
-            pass
-        return None

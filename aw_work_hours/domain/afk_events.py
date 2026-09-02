@@ -1,59 +1,57 @@
 """ActivityWatchのAFKイベント"""
 
-import json
-import urllib.error
-import urllib.parse
-import urllib.request
+from datetime import datetime, timedelta
 
-from ..types import _API_BASE, APIConnectionError, AWEvent
-from .afk_bucket import AFKBucket
-from .work_rule import WorkRule
+from ..types import _TIMEZONE, AWEvent
+from .work_gap import WorkGap
 from .work_span import WorkSpan
 
 
 class AFKEvents:
     """ActivityWatchのAFKイベント"""
 
-    def __init__(self, events: list[AWEvent]) -> None:
+    def __init__(self, events: list[AWEvent], min_event_seconds: int) -> None:
         self._events: list[AWEvent] = events
-
-    @classmethod
-    def fetch(cls, start: str | None, end: str | None) -> "AFKEvents":
-        url: str = f"{_API_BASE}/buckets/{AFKBucket.id()}/events"
-        params: dict[str, str] = {"limit": "-1"}
-        if start:
-            params["start"] = start
-        if end:
-            params["end"] = end
-        url += "?" + urllib.parse.urlencode(params)
-        try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                return cls(json.loads(resp.read().decode()))
-        except urllib.error.URLError as e:
-            raise APIConnectionError(
-                "エラー: ActivityWatch APIに接続できません\n"
-                "ActivityWatchが起動しているか確認してください\n"
-                f"詳細: {e}"
-            ) from e
+        self._min_event_seconds: int = min_event_seconds
+        self._spans: list[WorkSpan] | None = None
 
     @property
     def raw(self) -> list[AWEvent]:
         return self._events
 
     @property
-    def work_blocks(self) -> list[WorkSpan]:
-        spans: list[WorkSpan] = WorkSpan.list_from_events(self._events)
-        return self._extract_blocks(spans) if spans else []
+    def spans(self) -> list[WorkSpan]:
+        """not-afkかつ閾値以上の区間（開始時刻順）"""
+        if self._spans is None:
+            ordered: list[AWEvent] = sorted(
+                (
+                    e
+                    for e in self._events
+                    if e["data"]["status"] == "not-afk"
+                    and e["duration"] >= self._min_event_seconds
+                ),
+                key=lambda e: e["timestamp"],
+            )
+            spans: list[WorkSpan] = []
+            for event in ordered:
+                start: datetime = datetime.fromisoformat(
+                    event["timestamp"]
+                ).astimezone(_TIMEZONE)
+                spans.append(WorkSpan(start, start + timedelta(seconds=event["duration"])))
+            self._spans = spans
+        return self._spans
 
-    def _extract_blocks(self, spans: list[WorkSpan]) -> list[WorkSpan]:
+    @property
+    def work_blocks(self) -> list[WorkSpan]:
+        return self._extract_blocks() if self.spans else []
+
+    def _extract_blocks(self) -> list[WorkSpan]:
         blocks: list[WorkSpan] = []
         current: WorkSpan | None = None
-        for span in spans:
+        for span in self.spans:
             if current is None:
                 current = span
-            elif WorkRule.is_block_boundary(
-                (span.start - current.end).total_seconds(), span.start.hour
-            ):
+            elif WorkGap(current.end, span.start).is_block_boundary:
                 blocks.append(current)
                 current = span
             else:

@@ -1,9 +1,9 @@
 """勤務区間（開始・終了時刻の組）"""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
-from ..types import _TIMEZONE, AWEvent, HTMLSpan
-from .work_rule import WorkRule
+from ..types import HTMLSpan
+from .work_moment import WorkMoment
 
 
 class WorkSpan:
@@ -23,34 +23,19 @@ class WorkSpan:
 
     @property
     def hours(self) -> float:
-        return WorkRule.span_hours(self._start, self._end)
+        return (self._end - self._start).total_seconds() / 3600
+
+    @property
+    def work_date(self) -> date:
+        return WorkMoment(self._start).work_date
 
     def merged(self, other: "WorkSpan") -> "WorkSpan":
         return WorkSpan(min(self._start, other._start), max(self._end, other._end))
 
     def html_dict(self, base: date) -> HTMLSpan:
         return {
-            "startH": WorkRule.adjusted_hour(self._start, base),
+            "startH": WorkMoment(self._start).adjusted_hour(base),
             "startM": self._start.minute,
-            "endH": WorkRule.adjusted_hour(self._end, base),
+            "endH": WorkMoment(self._end).adjusted_hour(base),
             "endM": self._end.minute,
         }
-
-    @classmethod
-    def list_from_events(cls, events: list[AWEvent]) -> list["WorkSpan"]:
-        ordered: list[AWEvent] = sorted(
-            (
-                e
-                for e in events
-                if e["data"]["status"] == "not-afk"
-                and e["duration"] >= WorkRule.MIN_EVENT_SECONDS
-            ),
-            key=lambda e: e["timestamp"],
-        )
-        spans: list[WorkSpan] = []
-        for event in ordered:
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
-                _TIMEZONE
-            )
-            spans.append(cls(start, start + timedelta(seconds=event["duration"])))
-        return spans

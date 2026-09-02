@@ -31,17 +31,19 @@ class HolidayCalendar:
         return d in self._holidays.get(d.year, set())
 
     def _load_year(self, year: int) -> None:
-        cache_file = self._cache_dir / f"{year}.json"
+        cache_file: Path = self._cache_dir / f"{year}.json"
         if cache_file.exists():
-            self._holidays[year] = self._parse_cache(cache_file)
+            self._holidays[year] = self._parse_cache(year)
         else:
-            self._holidays[year] = self._fetch_and_cache(year, cache_file)
+            self._holidays[year] = self._fetch_and_cache(year)
 
-    def _parse_cache(self, cache_file: Path) -> set[date]:
+    def _parse_cache(self, year: int) -> set[date]:
+        cache_file: Path = self._cache_dir / f"{year}.json"
         with open(cache_file, encoding="utf-8") as f:
             return {date.fromisoformat(d) for d in json.load(f).keys()}
 
-    def _fetch_and_cache(self, year: int, cache_file: Path) -> set[date]:
+    def _fetch_and_cache(self, year: int) -> set[date]:
+        cache_file: Path = self._cache_dir / f"{year}.json"
         url: str = self._API_URL.format(year=year)
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:
