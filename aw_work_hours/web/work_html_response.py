@@ -10,6 +10,7 @@ from ..domain.month_period import MonthPeriod
 from ..domain.work_breaks import WorkBreaks
 from ..domain.work_calendar import WorkCalendar
 from ..domain.work_rule import WorkRule
+from ..domain.work_span import WorkSpan
 from .work_html_row import WorkHTMLRow
 
 
@@ -22,9 +23,7 @@ class WorkHTMLResponse:
     def json(self) -> dict:
         calendar, daily_work, events = WorkCalendar.from_period(self._period)
         holidays: HolidayCalendar = HolidayCalendar()
-        breaks: dict[date, list[tuple[datetime, datetime]]] = WorkBreaks(
-            events.raw
-        ).by_day
+        breaks: dict[date, list[WorkSpan]] = WorkBreaks(events.raw).by_day
         rows: list[WorkHTMLRow] = self._create_rows(
             calendar, daily_work, holidays, breaks
         )
@@ -36,7 +35,7 @@ class WorkHTMLResponse:
         calendar: WorkCalendar,
         daily_work: DailyWork,
         holidays: HolidayCalendar,
-        breaks: dict[date, list[tuple[datetime, datetime]]],
+        breaks: dict[date, list[WorkSpan]],
     ) -> list[WorkHTMLRow]:
         return [
             WorkHTMLRow(d, calendar, daily_work, holidays, breaks.get(d, []))

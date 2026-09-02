@@ -7,17 +7,18 @@ import urllib.request
 from datetime import datetime
 
 from ..types import _API_BASE, _TIMEZONE, AWEvent, CLIError
+from .afk_bucket_id import AFKBucketId
 
 
 class AFKBucketCandidates:
     """AFKバケットの候補群"""
 
-    def __init__(self, afk_ids: list[str], preference: str | None) -> None:
-        self._afk_ids: list[str] = afk_ids
+    def __init__(self, afk_ids: list[AFKBucketId], preference: str | None) -> None:
+        self._afk_ids: list[AFKBucketId] = afk_ids
         self._preference: str | None = preference
 
     @property
-    def selected(self) -> str:
+    def selected(self) -> AFKBucketId:
         if not self._afk_ids:
             raise CLIError(
                 "エラー: AFKバケットが見つかりません\n"
@@ -29,31 +30,30 @@ class AFKBucketCandidates:
             return self._afk_ids[0]
         return self._by_latest()
 
-    def _by_preference(self) -> str:
+    def _by_preference(self) -> AFKBucketId:
         pref: str = self._preference or ""
-        matched: list[str] = [b for b in self._afk_ids if pref.lower() in b.lower()]
+        matched: list[AFKBucketId] = [b for b in self._afk_ids if b.matches(pref)]
         if not matched:
             lines: list[str] = [
                 f"エラー: '{self._preference}' にマッチするバケットが見つかりません",
                 "利用可能なバケット:",
             ]
-            for bid in self._afk_ids:
-                lines.append(f"  {bid.replace('aw-watcher-afk_', '')}")
+            for b in self._afk_ids:
+                lines.append(f"  {b.hostname}")
             raise CLIError("\n".join(lines))
         if len(matched) > 1:
             lines = [
                 f"エラー: '{self._preference}' に複数のバケットがマッチしました:",
             ]
-            for bid in matched:
-                lines.append(f"  {bid.replace('aw-watcher-afk_', '')}")
+            for b in matched:
+                lines.append(f"  {b.hostname}")
             raise CLIError("\n".join(lines))
         return matched[0]
 
-    def _by_latest(self) -> str:
-        ranked: list[tuple[str, datetime | None, str]] = []
-        for bid in self._afk_ids:
-            hostname: str = bid.replace("aw-watcher-afk_", "")
-            ranked.append((bid, self._last_event(bid), hostname))
+    def _by_latest(self) -> AFKBucketId:
+        ranked: list[tuple[AFKBucketId, datetime | None]] = [
+            (b, self._last_event(b.raw)) for b in self._afk_ids
+        ]
         ranked.sort(
             key=lambda x: x[1] or datetime.min.replace(tzinfo=_TIMEZONE), reverse=True
         )
@@ -62,10 +62,10 @@ class AFKBucketCandidates:
             "複数のAFKバケットが見つかりました（PC名ごとに記録が分かれています）:",
             file=sys.stderr,
         )
-        for i, (_, last, hostname) in enumerate(ranked):
+        for i, (b, last) in enumerate(ranked):
             last_str: str = last.strftime("%Y-%m-%d %H:%M") if last else "データなし"
             marker: str = " ← 使用" if i == 0 else ""
-            print(f"  {hostname}: 最終記録 {last_str}{marker}", file=sys.stderr)
+            print(f"  {b.hostname}: 最終記録 {last_str}{marker}", file=sys.stderr)
         print("最新のデータを持つバケットを自動選択しました。", file=sys.stderr)
         print("特定のバケットを使う場合: --bucket=PC名", file=sys.stderr)
         return ranked[0][0]

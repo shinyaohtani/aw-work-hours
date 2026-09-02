@@ -10,11 +10,18 @@ class CLIArgs:
         self._args: argparse.Namespace = self._parse()
 
     def _parse(self) -> argparse.Namespace:
-        p: argparse.ArgumentParser = argparse.ArgumentParser(
+        p: argparse.ArgumentParser = self._parser()
+        self._add_arguments(p)
+        return p.parse_args()
+
+    def _parser(self) -> argparse.ArgumentParser:
+        return argparse.ArgumentParser(
             description="ActivityWatchから勤務時間をCSVにエクスポート",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=self._epilog(),
         )
+
+    def _add_arguments(self, p: argparse.ArgumentParser) -> None:
         p.add_argument(
             "--month",
             "-m",
@@ -36,7 +43,6 @@ class CLIArgs:
             default=None,
             help="最小イベント秒数（デフォルト: 150）",
         )
-        return p.parse_args()
 
     _EPILOG: str = "\n".join(
         [

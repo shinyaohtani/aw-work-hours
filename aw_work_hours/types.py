@@ -35,3 +35,12 @@ class HTMLEvent(TypedDict):
     endS: int
     duration: float
     data: dict[str, str]
+
+
+class HTMLSpan(TypedDict):
+    """HTML UI用の開始・終了時刻（時分のみ）"""
+
+    startH: int
+    startM: int
+    endH: int
+    endM: int

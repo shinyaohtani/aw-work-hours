@@ -6,6 +6,7 @@ from ..types import _WEEKDAYS
 from ..domain.holiday_calendar import HolidayCalendar
 from ..domain.month_period import MonthPeriod
 from ..domain.work_rule import WorkRule
+from ..domain.work_span import WorkSpan
 
 
 class WorkText:
@@ -13,14 +14,14 @@ class WorkText:
 
     def __init__(
         self,
-        daily: dict[date, tuple[datetime, datetime]],
+        daily: dict[date, WorkSpan],
         active: dict[date, float],
         max_gap: dict[date, float],
         period: MonthPeriod,
         holidays: HolidayCalendar,
         no_colon: bool = False,
     ) -> None:
-        self._daily: dict[date, tuple[datetime, datetime]] = daily
+        self._daily: dict[date, WorkSpan] = daily
         self._active: dict[date, float] = active
         self._max_gap: dict[date, float] = max_gap
         self._period: MonthPeriod = period
@@ -50,13 +51,13 @@ class WorkText:
         return self._format_work_day(d, prefix, is_holiday)
 
     def _format_work_day(self, d: date, prefix: str, is_holiday: bool) -> str:
-        s, e = self._daily[d]
-        span: float = WorkRule.span_hours(s, e)
+        span: WorkSpan = self._daily[d]
         active: float = self._active.get(d, 0) / 3600
-        afk: float = span - active
+        afk: float = span.hours - active
         spacing: str = "  " if is_holiday else "   "
         base: str = (
-            f"{prefix}{spacing}{self._time(s, d)} - {self._time(e, d)}   ({span:.1f}h)"
+            f"{prefix}{spacing}{self._time(span.start, d)} - "
+            f"{self._time(span.end, d)}   ({span.hours:.1f}h)"
         )
         if afk < 0.05:
             return base

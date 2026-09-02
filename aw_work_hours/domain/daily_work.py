@@ -1,9 +1,11 @@
 """日ごとの勤務統計"""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from ..types import _TIMEZONE, AWEvent
+from .work_event_spans import WorkEventSpans
 from .work_rule import WorkRule
+from .work_span import WorkSpan
 
 
 class DailyWork:
@@ -13,6 +15,7 @@ class DailyWork:
         self._not_afk: list[AWEvent] = [
             e for e in events if e["data"]["status"] == "not-afk"
         ]
+        self._spans_by_day: dict[date, list[WorkSpan]] = WorkEventSpans(events).by_day
 
     @property
     def active(self) -> dict[date, float]:
@@ -27,32 +30,15 @@ class DailyWork:
 
     @property
     def gaps(self) -> dict[date, float]:
-        events_by_day: dict[date, list[tuple[datetime, datetime]]] = {}
-        for event in self._not_afk:
-            if event["duration"] < WorkRule.MIN_EVENT_SECONDS:
-                continue
-            start: datetime = datetime.fromisoformat(event["timestamp"]).astimezone(
-                _TIMEZONE
-            )
-            end: datetime = start + timedelta(seconds=event["duration"])
-            wd: date = WorkRule.work_date(start)
-            if wd not in events_by_day:
-                events_by_day[wd] = []
-            events_by_day[wd].append((start, end))
-        return self._calc_max_gaps(events_by_day)
+        return {wd: self._max_gap(spans) for wd, spans in self._spans_by_day.items()}
 
-    def _calc_max_gaps(
-        self, events_by_day: dict[date, list[tuple[datetime, datetime]]]
-    ) -> dict[date, float]:
-        result: dict[date, float] = {}
-        for wd, events in events_by_day.items():
-            sorted_events: list[tuple[datetime, datetime]] = sorted(events)
-            max_gap: float = 0
-            max_end: datetime = sorted_events[0][1] if sorted_events else datetime.min
-            for i in range(1, len(sorted_events)):
-                gap: float = (sorted_events[i][0] - max_end).total_seconds()
-                if gap > 0:
-                    max_gap = max(max_gap, gap)
-                max_end = max(max_end, sorted_events[i][1])
-            result[wd] = max_gap
-        return result
+    def _max_gap(self, spans: list[WorkSpan]) -> float:
+        ordered: list[WorkSpan] = sorted(spans, key=lambda s: s.start)
+        max_gap: float = 0
+        max_end: datetime = ordered[0].end
+        for span in ordered[1:]:
+            gap: float = (span.start - max_end).total_seconds()
+            if gap > 0:
+                max_gap = max(max_gap, gap)
+            max_end = max(max_end, span.end)
+        return max_gap

@@ -27,6 +27,14 @@ class Settings:
             f.write("\n")
 
     @property
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "no_colon": self.no_colon,
+            "min_event_seconds": self.min_event_seconds,
+            "bucket": self.bucket,
+        }
+
+    @property
     def no_colon(self) -> bool:
         return bool(self._data.get("no_colon", False))
 
