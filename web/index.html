@@ -91,6 +91,40 @@
   </div>
 </div>
 
+<!-- Break overlay -->
+<div id="break-overlay"
+  class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200]">
+  <div id="break-panel" class="fixed break-panel w-[300px] z-[201]">
+    <div class="rounded-2xl overflow-hidden shadow-2xl ring-1 ring-black/5 bg-white">
+      <div class="flex items-start justify-between gap-3 px-5 pt-4 pb-3
+                  bg-gradient-to-br from-amber-50 to-white">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide
+                      text-amber-600 uppercase">
+            <span>☕</span><span>Break</span>
+          </div>
+          <div id="break-date" class="text-sm font-semibold text-gray-900 mt-0.5 truncate"></div>
+          <div id="break-work-span" class="text-xs text-gray-400 mt-0.5 font-mono"></div>
+        </div>
+        <button id="break-close"
+          class="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-lg
+                 leading-none text-gray-400 hover:text-gray-700 hover:bg-black/5 bg-transparent
+                 border-none cursor-pointer transition-colors">
+          &times;
+        </button>
+      </div>
+      <div id="break-list" class="px-3.5 py-3 space-y-1.5 max-h-[280px] overflow-y-auto"></div>
+      <div class="flex justify-end px-3.5 py-3 bg-gray-50 border-t border-gray-100">
+        <button id="break-done"
+          class="px-4 py-1.5 text-sm font-medium rounded-lg bg-gray-900 text-white
+                 hover:bg-gray-700 cursor-pointer transition-colors border-none">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

@@ -18,11 +18,13 @@ class WorkHTMLRow:
         calendar: WorkCalendar,
         daily_work: DailyWork,
         holidays: HolidayCalendar,
+        breaks: list[tuple[datetime, datetime]] | None = None,
     ) -> None:
         self._date: date = d
         self._calendar: WorkCalendar = calendar
         self._daily_work: DailyWork = daily_work
         self._holidays: HolidayCalendar = holidays
+        self._breaks: list[tuple[datetime, datetime]] = breaks or []
         self._events: list[HTMLEvent] = []
 
     def add_event(self, start: datetime, end: datetime, event: AWEvent) -> None:
@@ -87,3 +89,15 @@ class WorkHTMLRow:
         if afk >= 0.05:
             row["afk"] = round(afk, 1)
             row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
+        row["breaks"] = self._break_dicts(d)
+
+    def _break_dicts(self, d: date) -> list[dict]:
+        return [
+            {
+                "startH": WorkRule.adjusted_hour(bs, d),
+                "startM": bs.minute,
+                "endH": WorkRule.adjusted_hour(be, d),
+                "endM": be.minute,
+            }
+            for bs, be in self._breaks
+        ]

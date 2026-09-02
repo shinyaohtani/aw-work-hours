@@ -59,12 +59,16 @@ async function loadMonth(ym) {
     render(data.rows);
 }
 
+let lastRows = [];
+
 function render(rows) {
+    lastRows = rows;
     const table = document.getElementById('table');
     let html = '<tr class="hour-labels"><td></td><td></td><td></td><td></td><td><div>';
     for (let h = 0; h < 24; h += 4) html += `<span>${String(h).padStart(2,'0')}:00</span>`;
     html += '</div></td></tr>';
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
         const holClass = row.holiday ? ' class="holiday"' : '';
         const holMark = row.holiday ? '*' : '';
         const dateCol = `${row.date} ${row.weekday}${holMark}`;
@@ -72,7 +76,9 @@ function render(rows) {
         if (row.hasWork) {
             const startRaw = rawTime(row.startH, row.startM);
             const endRaw = rawTime(row.endH, row.endM);
-            timeCol = `<span class="time-copy cursor-pointer hover:bg-yellow-100 rounded px-0.5" data-copy="${startRaw}">${formatTime(row.startH, row.startM)}</span> - <span class="time-copy cursor-pointer hover:bg-yellow-100 rounded px-0.5" data-copy="${endRaw}">${formatTime(row.endH, row.endM)}</span>`;
+            const hasBreaks = row.breaks && row.breaks.length;
+            const breakIcon = `<span class="break-icon ml-1 ${hasBreaks ? 'cursor-pointer' : 'invisible'}" data-row="${i}" title="休憩を見る">☕</span>`;
+            timeCol = `<span class="time-copy cursor-pointer hover:bg-yellow-100 rounded px-0.5" data-copy="${startRaw}">${formatTime(row.startH, row.startM)}</span> - <span class="time-copy cursor-pointer hover:bg-yellow-100 rounded px-0.5" data-copy="${endRaw}">${formatTime(row.endH, row.endM)}</span>${breakIcon}`;
             durCol = `(${row.span.toFixed(1)}h)`;
             if (row.afk !== undefined) afkCol = `-${row.afk.toFixed(1)}h (max:-${row.maxGap.toFixed(1)}h)`;
         }
@@ -99,6 +105,12 @@ function render(rows) {
     document.querySelectorAll('.time-copy').forEach(el => {
         el.addEventListener('click', () => copyTime(el.dataset.copy));
     });
+    document.querySelectorAll('.break-icon').forEach(el => {
+        const row = lastRows[el.dataset.row];
+        if (row.breaks && row.breaks.length) {
+            el.addEventListener('click', () => openBreaks(row, el));
+        }
+    });
     document.querySelectorAll('.event').forEach(el => {
         const tooltip = el.querySelector('.tooltip');
         el.addEventListener('mouseenter', () => {
@@ -112,6 +124,75 @@ function render(rows) {
         el.addEventListener('mouseleave', () => tooltip.style.display = 'none');
     });
 }
+
+// Break overlay
+const breakOverlay = document.getElementById('break-overlay');
+const breakPanel = document.getElementById('break-panel');
+const breakList = document.getElementById('break-list');
+const breakDate = document.getElementById('break-date');
+const breakWorkSpan = document.getElementById('break-work-span');
+
+function breakRowHtml(b) {
+    const startRaw = rawTime(b.startH, b.startM);
+    const endRaw = rawTime(b.endH, b.endM);
+    const mins = (b.endH * 60 + b.endM) - (b.startH * 60 + b.startM);
+    return `<div class="break-row flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
+<span class="time-copy cursor-pointer rounded px-1 font-medium text-gray-800 hover:bg-amber-100 hover:text-amber-800" data-copy="${startRaw}">${formatTime(b.startH, b.startM)}</span>
+<span class="break-arrow text-gray-300">&rarr;</span>
+<span class="time-copy cursor-pointer rounded px-1 font-medium text-gray-800 hover:bg-amber-100 hover:text-amber-800" data-copy="${endRaw}">${formatTime(b.endH, b.endM)}</span>
+<span class="text-[11px] text-gray-400 ml-auto">${mins}分</span>
+</div>`;
+}
+
+function openBreaks(row, anchorEl) {
+    const holMark = row.holiday ? '*' : '';
+    breakDate.textContent = `${row.date} ${row.weekday}${holMark}`;
+    breakWorkSpan.textContent = `${formatTime(row.startH, row.startM)} - ${formatTime(row.endH, row.endM)}`;
+    breakList.innerHTML = row.breaks.map(breakRowHtml).join('');
+    breakList.querySelectorAll('.time-copy').forEach(el => {
+        el.addEventListener('click', () => copyTime(el.dataset.copy));
+    });
+    breakOverlay.classList.remove('hidden');
+    positionBreakPanel(anchorEl);
+}
+
+function positionBreakPanel(anchorEl) {
+    const margin = 8;
+    const anchor = anchorEl.getBoundingClientRect();
+    breakPanel.style.visibility = 'hidden';
+    breakPanel.style.top = '0px';
+    breakPanel.style.left = '0px';
+    const panel = breakPanel.getBoundingClientRect();
+
+    let top = anchor.bottom + margin;
+    let arrowClass = 'arrow-top';
+    if (top + panel.height > window.innerHeight - margin) {
+        top = anchor.top - panel.height - margin;
+        arrowClass = 'arrow-bottom';
+    }
+    top = Math.max(margin, top);
+
+    let left = anchor.left + anchor.width / 2 - panel.width / 2;
+    left = Math.min(Math.max(left, margin), window.innerWidth - panel.width - margin);
+
+    let arrowLeft = anchor.left + anchor.width / 2 - left;
+    arrowLeft = Math.min(Math.max(arrowLeft, 14), panel.width - 14);
+
+    breakPanel.style.setProperty('--arrow-left', `${arrowLeft}px`);
+    breakPanel.classList.remove('arrow-top', 'arrow-bottom');
+    breakPanel.classList.add(arrowClass);
+    breakPanel.style.top = `${top}px`;
+    breakPanel.style.left = `${left}px`;
+    breakPanel.style.visibility = 'visible';
+}
+
+function hideBreaks() {
+    breakOverlay.classList.add('hidden');
+}
+
+breakOverlay.addEventListener('click', e => { if (e.target === breakOverlay) hideBreaks(); });
+document.getElementById('break-close').addEventListener('click', hideBreaks);
+document.getElementById('break-done').addEventListener('click', hideBreaks);
 
 function changeMonth(delta) {
     const input = document.getElementById('month');
