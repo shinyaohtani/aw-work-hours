@@ -1,12 +1,13 @@
 """HTML APIレスポンス生成"""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from ..types import _TIMEZONE, AWEvent
 from ..domain.afk_events import AFKEvents
 from ..domain.daily_work import DailyWork
 from ..domain.holiday_calendar import HolidayCalendar
 from ..domain.month_period import MonthPeriod
+from ..domain.work_breaks import WorkBreaks
 from ..domain.work_calendar import WorkCalendar
 from ..domain.work_rule import WorkRule
 from .work_html_row import WorkHTMLRow
@@ -21,15 +22,24 @@ class WorkHTMLResponse:
     def json(self) -> dict:
         calendar, daily_work, events = WorkCalendar.from_period(self._period)
         holidays: HolidayCalendar = HolidayCalendar()
-        rows: list[WorkHTMLRow] = self._create_rows(calendar, daily_work, holidays)
+        breaks: dict[date, list[tuple[datetime, datetime]]] = WorkBreaks(
+            events.raw
+        ).by_day
+        rows: list[WorkHTMLRow] = self._create_rows(
+            calendar, daily_work, holidays, breaks
+        )
         self._populate_events(rows, events)
         return {"rows": [r.to_dict() for r in rows]}
 
     def _create_rows(
-        self, calendar: WorkCalendar, daily_work: DailyWork, holidays: HolidayCalendar
+        self,
+        calendar: WorkCalendar,
+        daily_work: DailyWork,
+        holidays: HolidayCalendar,
+        breaks: dict[date, list[tuple[datetime, datetime]]],
     ) -> list[WorkHTMLRow]:
         return [
-            WorkHTMLRow(d, calendar, daily_work, holidays)
+            WorkHTMLRow(d, calendar, daily_work, holidays, breaks.get(d, []))
             for d in self._period.date_range()
         ]
 

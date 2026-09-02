@@ -40,6 +40,23 @@ td.timeline-cell { width: 100%; }
 .time-copy { cursor: pointer; padding: 0 3px; border-radius: 3px; }
 .time-copy:hover { background: #fef3c7; }
 
+/* Break icon */
+.break-icon { font-size: 12px; opacity: 0.7; }
+.break-icon:hover { opacity: 1; }
+
+/* Break panel — speech-bubble tail pointing at the clicked icon */
+.break-panel::after {
+  content: '';
+  position: absolute;
+  left: var(--arrow-left, 24px);
+  width: 0;
+  height: 0;
+  border: 7px solid transparent;
+  transform: translateX(-50%);
+}
+.break-panel.arrow-top::after { top: -14px; border-bottom-color: #fff; }
+.break-panel.arrow-bottom::after { bottom: -14px; border-top-color: #fff; }
+
 /* Toast */
 #toast { position: fixed; left: 50%; bottom: 2rem; transform: translateX(-50%);
   padding: 8px 16px; border-radius: 6px; background: #111827; color: #fff;
