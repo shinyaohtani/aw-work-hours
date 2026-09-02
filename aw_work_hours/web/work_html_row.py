@@ -3,9 +3,8 @@
 from datetime import date, datetime, timedelta
 
 from ..types import _WEEKDAYS, _TIMEZONE, AWEvent, HTMLEvent
-from ..domain.daily_work import DailyWork
 from ..domain.holiday_calendar import HolidayCalendar
-from ..domain.work_calendar import WorkCalendar
+from ..domain.work_period_report import WorkPeriodReport
 from ..domain.work_span import WorkSpan
 
 
@@ -15,14 +14,12 @@ class WorkHTMLRow:
     def __init__(
         self,
         d: date,
-        calendar: WorkCalendar,
-        daily_work: DailyWork,
+        report: WorkPeriodReport,
         holidays: HolidayCalendar,
         breaks: list[WorkSpan] | None = None,
     ) -> None:
         self._date: date = d
-        self._calendar: WorkCalendar = calendar
-        self._daily_work: DailyWork = daily_work
+        self._report: WorkPeriodReport = report
         self._holidays: HolidayCalendar = holidays
         self._breaks: list[WorkSpan] = breaks or []
         self._events: list[HTMLEvent] = []
@@ -31,39 +28,37 @@ class WorkHTMLRow:
         current: date = start.date()
         while current <= end.date():
             if current == self._date:
-                day_start: datetime = max(
-                    start,
-                    datetime.combine(current, datetime.min.time()).replace(
-                        tzinfo=_TIMEZONE
-                    ),
-                )
-                day_end_limit: datetime = datetime.combine(
-                    current + timedelta(days=1), datetime.min.time()
-                ).replace(tzinfo=_TIMEZONE)
-                day_end: datetime = min(end, day_end_limit)
-                if day_end > day_start:
-                    self._events.append(
-                        self._event_dict(day_start, day_end, current, event)
-                    )
+                self._add_event_on(current, start, end, event)
             current += timedelta(days=1)
 
-    def _event_dict(
-        self, start: datetime, end: datetime, current: date, event: AWEvent
-    ) -> HTMLEvent:
-        return {
-            "startH": start.hour,
-            "startM": start.minute,
-            "startS": start.second,
-            "endH": end.hour if end.date() == current else 24,
-            "endM": end.minute if end.date() == current else 0,
-            "endS": end.second if end.date() == current else 0,
-            "duration": (end - start).total_seconds(),
-            "data": event["data"],
-        }
+    def _add_event_on(
+        self, current: date, start: datetime, end: datetime, event: AWEvent
+    ) -> None:
+        day_start: datetime = max(
+            start,
+            datetime.combine(current, datetime.min.time()).replace(tzinfo=_TIMEZONE),
+        )
+        day_end_limit: datetime = datetime.combine(
+            current + timedelta(days=1), datetime.min.time()
+        ).replace(tzinfo=_TIMEZONE)
+        day_end: datetime = min(end, day_end_limit)
+        if day_end > day_start:
+            self._events.append(
+                {
+                    "startH": day_start.hour,
+                    "startM": day_start.minute,
+                    "startS": day_start.second,
+                    "endH": day_end.hour if day_end.date() == current else 24,
+                    "endM": day_end.minute if day_end.date() == current else 0,
+                    "endS": day_end.second if day_end.date() == current else 0,
+                    "duration": (day_end - day_start).total_seconds(),
+                    "data": event["data"],
+                }
+            )
 
     def to_dict(self) -> dict:
         d: date = self._date
-        has_work: bool = d in self._calendar.daily
+        has_work: bool = d in self._report.calendar.daily
         is_holiday: bool = has_work and self._holidays.is_holiday(d)
         row: dict = {
             "date": d.isoformat(),
@@ -77,12 +72,12 @@ class WorkHTMLRow:
         return row
 
     def _add_work_fields(self, row: dict, d: date) -> None:
-        span: WorkSpan = self._calendar.daily[d]
+        span: WorkSpan = self._report.calendar.daily[d]
         row.update(span.html_dict(d))
         row["span"] = round(span.hours, 1)
-        active_h: float = self._daily_work.active.get(d, 0) / 3600
+        active_h: float = self._report.daily_work.active.get(d, 0) / 3600
         afk: float = span.hours - active_h
         if afk >= 0.05:
             row["afk"] = round(afk, 1)
-            row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
+            row["maxGap"] = round(self._report.daily_work.gaps.get(d, 0) / 3600, 1)
         row["breaks"] = [b.html_dict(d) for b in self._breaks]

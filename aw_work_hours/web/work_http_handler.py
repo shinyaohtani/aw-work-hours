@@ -7,16 +7,17 @@ from typing import Any
 from ..settings import Settings
 from ..domain.afk_bucket import AFKBucket
 from ..domain.month_period import MonthPeriod
-from ..domain.work_rule import WorkRule
 from .activity_watch_proxy import ActivityWatchProxy
 from .settings_payload import SettingsPayload
 from .work_html_response import WorkHTMLResponse
+from .work_http_server_socket import WorkHTTPServerSocket
 
 
 class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
     """HTTPリクエストハンドラ"""
 
     directory: str = ""
+    server: WorkHTTPServerSocket
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=self.directory, **kwargs)
@@ -57,7 +58,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_buckets(self) -> None:
         try:
-            hostnames: list[str] = [b.hostname for b in AFKBucket.fetch_ids()]
+            hostnames: list[str] = [b.hostname for b in self.server.bucket.candidates]
             body: bytes = json.dumps(hostnames, ensure_ascii=False).encode("utf-8")
             self._send_json(body)
         except Exception as e:
@@ -74,9 +75,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             settings: Settings = Settings()
             payload.apply_to(settings)
             settings.save()
-            WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
-            AFKBucket.clear_cache()
-            AFKBucket.set_preference(settings.bucket)
+            self.server.bucket = AFKBucket(settings.bucket)
             body: bytes = json.dumps(settings.as_dict, ensure_ascii=False).encode(
                 "utf-8"
             )
@@ -87,8 +86,11 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_data(self) -> None:
         try:
             month_str: str = self.path.split("/")[-1]
-            period: MonthPeriod = MonthPeriod.parse(month_str)
-            response: WorkHTMLResponse = WorkHTMLResponse(period)
+            period: MonthPeriod = MonthPeriod(month_str)
+            settings: Settings = Settings()
+            response: WorkHTMLResponse = WorkHTMLResponse(
+                period, self.server.bucket, settings.min_event_seconds
+            )
             body: bytes = json.dumps(response.json(), ensure_ascii=False).encode(
                 "utf-8"
             )

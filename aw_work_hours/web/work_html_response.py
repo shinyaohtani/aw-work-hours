@@ -3,13 +3,11 @@
 from datetime import date, datetime, timedelta
 
 from ..types import _TIMEZONE, AWEvent
-from ..domain.afk_events import AFKEvents
-from ..domain.daily_work import DailyWork
+from ..domain.afk_bucket import AFKBucket
 from ..domain.holiday_calendar import HolidayCalendar
 from ..domain.month_period import MonthPeriod
 from ..domain.work_breaks import WorkBreaks
-from ..domain.work_calendar import WorkCalendar
-from ..domain.work_rule import WorkRule
+from ..domain.work_period_report import WorkPeriodReport
 from ..domain.work_span import WorkSpan
 from .work_html_row import WorkHTMLRow
 
@@ -17,37 +15,42 @@ from .work_html_row import WorkHTMLRow
 class WorkHTMLResponse:
     """HTML APIレスポンス生成"""
 
-    def __init__(self, period: MonthPeriod) -> None:
+    def __init__(
+        self, period: MonthPeriod, bucket: AFKBucket, min_event_seconds: int
+    ) -> None:
         self._period: MonthPeriod = period
+        self._bucket: AFKBucket = bucket
+        self._min_event_seconds: int = min_event_seconds
 
     def json(self) -> dict:
-        calendar, daily_work, events = WorkCalendar.from_period(self._period)
-        holidays: HolidayCalendar = HolidayCalendar()
-        breaks: dict[date, list[WorkSpan]] = WorkBreaks(events.raw).by_day
-        rows: list[WorkHTMLRow] = self._create_rows(
-            calendar, daily_work, holidays, breaks
+        report: WorkPeriodReport = WorkPeriodReport(
+            self._period, self._bucket, self._min_event_seconds
         )
-        self._populate_events(rows, events)
+        holidays: HolidayCalendar = HolidayCalendar()
+        breaks: dict[date, list[WorkSpan]] = WorkBreaks(report.events).by_day
+        rows: list[WorkHTMLRow] = self._create_rows(report, holidays, breaks)
+        self._populate_events(rows, report)
         return {"rows": [r.to_dict() for r in rows]}
 
     def _create_rows(
         self,
-        calendar: WorkCalendar,
-        daily_work: DailyWork,
+        report: WorkPeriodReport,
         holidays: HolidayCalendar,
         breaks: dict[date, list[WorkSpan]],
     ) -> list[WorkHTMLRow]:
         return [
-            WorkHTMLRow(d, calendar, daily_work, holidays, breaks.get(d, []))
+            WorkHTMLRow(d, report, holidays, breaks.get(d, []))
             for d in self._period.date_range()
         ]
 
-    def _populate_events(self, rows: list[WorkHTMLRow], events: AFKEvents) -> None:
+    def _populate_events(
+        self, rows: list[WorkHTMLRow], report: WorkPeriodReport
+    ) -> None:
         not_afk: list[AWEvent] = [
             e
-            for e in events.raw
+            for e in report.events.raw
             if e["data"]["status"] == "not-afk"
-            and e["duration"] >= WorkRule.MIN_EVENT_SECONDS
+            and e["duration"] >= self._min_event_seconds
         ]
         for ev in not_afk:
             start: datetime = datetime.fromisoformat(ev["timestamp"]).astimezone(

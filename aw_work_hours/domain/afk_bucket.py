@@ -10,32 +10,27 @@ from .afk_bucket_id import AFKBucketId
 
 
 class AFKBucket:
-    """ActivityWatchのAFKバケット"""
+    """ActivityWatchのAFKバケット（選択・キャッシュ）"""
 
-    _cached_id: str | None = None
-    _preference: str | None = None
+    def __init__(self, preference: str | None, timeout: int = 10) -> None:
+        self._preference: str | None = preference
+        self._timeout: int = timeout
+        self._cached_id: str | None = None
 
-    @classmethod
-    def clear_cache(cls) -> None:
-        cls._cached_id = None
+    @property
+    def id(self) -> str:
+        if self._cached_id is None:
+            self._cached_id = AFKBucketCandidates(
+                self.candidates, self._preference
+            ).selected.raw
+        resolved: str = self._cached_id
+        return resolved
 
-    @classmethod
-    def set_preference(cls, hostname: str | None) -> None:
-        cls._preference = hostname
-
-    @classmethod
-    def id(cls) -> str:
-        if cls._cached_id:
-            return cls._cached_id
-        afk_ids: list[AFKBucketId] = cls.fetch_ids()
-        cls._cached_id = cls._resolve(afk_ids)
-        return cls._cached_id
-
-    @classmethod
-    def fetch_ids(cls) -> list[AFKBucketId]:
+    @property
+    def candidates(self) -> list[AFKBucketId]:
         url: str = f"{_API_BASE}/buckets"
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            with urllib.request.urlopen(url, timeout=self._timeout) as resp:
                 buckets: dict[str, object] = json.loads(resp.read().decode())
         except urllib.error.URLError as e:
             raise APIConnectionError(
@@ -43,9 +38,4 @@ class AFKBucket:
                 "ActivityWatchが起動しているか確認してください\n"
                 f"詳細: {e}"
             ) from e
-        return [AFKBucketId(b) for b in buckets if AFKBucketId.is_afk_bucket(b)]
-
-    @classmethod
-    def _resolve(cls, afk_ids: list[AFKBucketId]) -> str:
-        candidates: AFKBucketCandidates = AFKBucketCandidates(afk_ids, cls._preference)
-        return candidates.selected.raw
+        return [b for b in (AFKBucketId(name) for name in buckets) if b.is_afk_bucket]
