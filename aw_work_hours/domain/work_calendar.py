@@ -1,29 +1,26 @@
 """勤務カレンダー"""
 
-from datetime import date, datetime
+from datetime import date
 
 from .afk_events import AFKEvents
 from .daily_work import DailyWork
 from .month_period import MonthPeriod
 from .work_rule import WorkRule
+from .work_span import WorkSpan
 
 
 class WorkCalendar:
     """勤務カレンダー"""
 
-    def __init__(self, daily: dict[date, tuple[datetime, datetime]]) -> None:
-        self._daily: dict[date, tuple[datetime, datetime]] = daily
+    def __init__(self, daily: dict[date, WorkSpan]) -> None:
+        self._daily: dict[date, WorkSpan] = daily
 
     @classmethod
-    def from_blocks(cls, blocks: list[tuple[datetime, datetime]]) -> "WorkCalendar":
-        daily: dict[date, tuple[datetime, datetime]] = {}
-        for block_start, block_end in blocks:
-            wd: date = WorkRule.work_date(block_start)
-            if wd not in daily:
-                daily[wd] = (block_start, block_end)
-            else:
-                s, e = daily[wd]
-                daily[wd] = (min(block_start, s), max(block_end, e))
+    def from_blocks(cls, blocks: list[WorkSpan]) -> "WorkCalendar":
+        daily: dict[date, WorkSpan] = {}
+        for block in blocks:
+            wd: date = WorkRule.work_date(block.start)
+            daily[wd] = block if wd not in daily else daily[wd].merged(block)
         return cls(daily)
 
     @classmethod
@@ -41,5 +38,5 @@ class WorkCalendar:
         return len(self._daily)
 
     @property
-    def daily(self) -> dict[date, tuple[datetime, datetime]]:
+    def daily(self) -> dict[date, WorkSpan]:
         return self._daily

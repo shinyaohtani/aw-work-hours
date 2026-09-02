@@ -5,6 +5,7 @@ from datetime import date, datetime
 from ..types import _WEEKDAYS
 from ..domain.month_period import MonthPeriod
 from ..domain.work_rule import WorkRule
+from ..domain.work_span import WorkSpan
 
 
 class WorkCSV:
@@ -12,12 +13,12 @@ class WorkCSV:
 
     def __init__(
         self,
-        daily: dict[date, tuple[datetime, datetime]],
+        daily: dict[date, WorkSpan],
         active: dict[date, float],
         max_gap: dict[date, float],
         period: MonthPeriod,
     ) -> None:
-        self._daily: dict[date, tuple[datetime, datetime]] = daily
+        self._daily: dict[date, WorkSpan] = daily
         self._active: dict[date, float] = active
         self._max_gap: dict[date, float] = max_gap
         self._period: MonthPeriod = period
@@ -38,12 +39,14 @@ class WorkCSV:
         prefix: str = f'="{d.strftime("%Y-%m-%d")}",{_WEEKDAYS[d.weekday()]}'
         if d not in self._daily:
             return f"{prefix},,,,,"
-        start, end = self._daily[d]
-        span: float = WorkRule.span_hours(start, end)
+        span: WorkSpan = self._daily[d]
         active: float = self._active.get(d, 0) / 3600
-        afk: float = span - active
+        afk: float = span.hours - active
         max_gap: float = self._max_gap.get(d, 0) / 3600
-        return f'{prefix},="{self._time(start, d)}",="{self._time(end, d)}",{span:.2f},{afk:.2f},{max_gap:.2f}'
+        return (
+            f'{prefix},="{self._time(span.start, d)}",="{self._time(span.end, d)}",'
+            f"{span.hours:.2f},{afk:.2f},{max_gap:.2f}"
+        )
 
     def _time(self, dt: datetime, base: date) -> str:
         hour: int = WorkRule.adjusted_hour(dt, base)

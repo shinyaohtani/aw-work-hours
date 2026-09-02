@@ -6,6 +6,7 @@ import urllib.request
 
 from ..types import _API_BASE, APIConnectionError
 from .afk_bucket_candidates import AFKBucketCandidates
+from .afk_bucket_id import AFKBucketId
 
 
 class AFKBucket:
@@ -26,12 +27,12 @@ class AFKBucket:
     def id(cls) -> str:
         if cls._cached_id:
             return cls._cached_id
-        afk_ids: list[str] = cls.fetch_ids()
+        afk_ids: list[AFKBucketId] = cls.fetch_ids()
         cls._cached_id = cls._resolve(afk_ids)
         return cls._cached_id
 
     @classmethod
-    def fetch_ids(cls) -> list[str]:
+    def fetch_ids(cls) -> list[AFKBucketId]:
         url: str = f"{_API_BASE}/buckets"
         try:
             with urllib.request.urlopen(url, timeout=10) as resp:
@@ -42,9 +43,9 @@ class AFKBucket:
                 "ActivityWatchが起動しているか確認してください\n"
                 f"詳細: {e}"
             ) from e
-        return [b for b in buckets if b.startswith("aw-watcher-afk_")]
+        return [AFKBucketId(b) for b in buckets if AFKBucketId.is_afk_bucket(b)]
 
     @classmethod
-    def _resolve(cls, afk_ids: list[str]) -> str:
+    def _resolve(cls, afk_ids: list[AFKBucketId]) -> str:
         candidates: AFKBucketCandidates = AFKBucketCandidates(afk_ids, cls._preference)
-        return candidates.selected
+        return candidates.selected.raw

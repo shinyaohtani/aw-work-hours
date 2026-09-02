@@ -6,7 +6,7 @@ from ..types import _WEEKDAYS, _TIMEZONE, AWEvent, HTMLEvent
 from ..domain.daily_work import DailyWork
 from ..domain.holiday_calendar import HolidayCalendar
 from ..domain.work_calendar import WorkCalendar
-from ..domain.work_rule import WorkRule
+from ..domain.work_span import WorkSpan
 
 
 class WorkHTMLRow:
@@ -18,13 +18,13 @@ class WorkHTMLRow:
         calendar: WorkCalendar,
         daily_work: DailyWork,
         holidays: HolidayCalendar,
-        breaks: list[tuple[datetime, datetime]] | None = None,
+        breaks: list[WorkSpan] | None = None,
     ) -> None:
         self._date: date = d
         self._calendar: WorkCalendar = calendar
         self._daily_work: DailyWork = daily_work
         self._holidays: HolidayCalendar = holidays
-        self._breaks: list[tuple[datetime, datetime]] = breaks or []
+        self._breaks: list[WorkSpan] = breaks or []
         self._events: list[HTMLEvent] = []
 
     def add_event(self, start: datetime, end: datetime, event: AWEvent) -> None:
@@ -77,27 +77,12 @@ class WorkHTMLRow:
         return row
 
     def _add_work_fields(self, row: dict, d: date) -> None:
-        s, e = self._calendar.daily[d]
-        span: float = WorkRule.span_hours(s, e)
-        row["startH"] = WorkRule.adjusted_hour(s, d)
-        row["startM"] = s.minute
-        row["endH"] = WorkRule.adjusted_hour(e, d)
-        row["endM"] = e.minute
-        row["span"] = round(span, 1)
+        span: WorkSpan = self._calendar.daily[d]
+        row.update(span.html_dict(d))
+        row["span"] = round(span.hours, 1)
         active_h: float = self._daily_work.active.get(d, 0) / 3600
-        afk: float = span - active_h
+        afk: float = span.hours - active_h
         if afk >= 0.05:
             row["afk"] = round(afk, 1)
             row["maxGap"] = round(self._daily_work.gaps.get(d, 0) / 3600, 1)
-        row["breaks"] = self._break_dicts(d)
-
-    def _break_dicts(self, d: date) -> list[dict]:
-        return [
-            {
-                "startH": WorkRule.adjusted_hour(bs, d),
-                "startM": bs.minute,
-                "endH": WorkRule.adjusted_hour(be, d),
-                "endM": be.minute,
-            }
-            for bs, be in self._breaks
-        ]
+        row["breaks"] = [b.html_dict(d) for b in self._breaks]

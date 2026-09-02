@@ -3,13 +3,13 @@
 import http.server
 import json
 from typing import Any
-import urllib.error
-import urllib.request
 
 from ..settings import Settings
 from ..domain.afk_bucket import AFKBucket
 from ..domain.month_period import MonthPeriod
 from ..domain.work_rule import WorkRule
+from .activity_watch_proxy import ActivityWatchProxy
+from .settings_payload import SettingsPayload
 from .work_html_response import WorkHTMLResponse
 
 
@@ -48,25 +48,16 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def _handle_get_settings(self) -> None:
         try:
-            settings: Settings = Settings()
-            body: bytes = json.dumps(
-                {
-                    "no_colon": settings.no_colon,
-                    "min_event_seconds": settings.min_event_seconds,
-                    "bucket": settings.bucket,
-                },
-                ensure_ascii=False,
-            ).encode("utf-8")
+            body: bytes = json.dumps(Settings().as_dict, ensure_ascii=False).encode(
+                "utf-8"
+            )
             self._send_json(body)
         except Exception as e:
             self.send_error(500, f"Error: {e}")
 
     def _handle_get_buckets(self) -> None:
         try:
-            afk_ids: list[str] = AFKBucket.fetch_ids()
-            hostnames: list[str] = [
-                bid.replace("aw-watcher-afk_", "") for bid in afk_ids
-            ]
+            hostnames: list[str] = [b.hostname for b in AFKBucket.fetch_ids()]
             body: bytes = json.dumps(hostnames, ensure_ascii=False).encode("utf-8")
             self._send_json(body)
         except Exception as e:
@@ -75,50 +66,23 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_post_settings(self) -> None:
         try:
             length: int = int(self.headers.get("Content-Length", 0))
-            raw: bytes = self.rfile.read(length)
-            data: dict[str, object] = json.loads(raw.decode("utf-8"))
-            if err := self._validate_settings(data):
-                self.send_error(400, err)
+            raw: dict[str, object] = json.loads(self.rfile.read(length).decode("utf-8"))
+            payload: SettingsPayload = SettingsPayload(raw)
+            if payload.error:
+                self.send_error(400, payload.error)
                 return
             settings: Settings = Settings()
-            if "no_colon" in data and isinstance(data["no_colon"], bool):
-                settings.no_colon = data["no_colon"]
-            if "min_event_seconds" in data and isinstance(
-                data["min_event_seconds"], int
-            ):
-                settings.min_event_seconds = data["min_event_seconds"]
-            if "bucket" in data:
-                bucket = data["bucket"]
-                settings.bucket = bucket if isinstance(bucket, str) else None
+            payload.apply_to(settings)
             settings.save()
             WorkRule.MIN_EVENT_SECONDS = settings.min_event_seconds
             AFKBucket.clear_cache()
             AFKBucket.set_preference(settings.bucket)
-            body: bytes = json.dumps(
-                {
-                    "no_colon": settings.no_colon,
-                    "min_event_seconds": settings.min_event_seconds,
-                    "bucket": settings.bucket,
-                },
-                ensure_ascii=False,
-            ).encode("utf-8")
+            body: bytes = json.dumps(settings.as_dict, ensure_ascii=False).encode(
+                "utf-8"
+            )
             self._send_json(body)
         except Exception as e:
             self.send_error(500, f"Error: {e}")
-
-    @staticmethod
-    def _validate_settings(data: dict[str, object]) -> str | None:
-        if "no_colon" in data and not isinstance(data["no_colon"], bool):
-            return "no_colon must be a boolean"
-        if "min_event_seconds" in data:
-            v = data["min_event_seconds"]
-            if isinstance(v, bool) or not isinstance(v, int) or v < 0:
-                return "min_event_seconds must be a non-negative integer"
-        if "bucket" in data:
-            v = data["bucket"]
-            if v is not None and not isinstance(v, str):
-                return "bucket must be a string or null"
-        return None
 
     def _handle_data(self) -> None:
         try:
@@ -140,10 +104,7 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _proxy_api(self) -> None:
-        url: str = f"http://127.0.0.1:5600{self.path}"
         try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                body: bytes = resp.read()
-                self._send_json(body)
+            self._send_json(ActivityWatchProxy(self.path).response_body)
         except Exception as e:
             self.send_error(502, f"API Error: {e}")

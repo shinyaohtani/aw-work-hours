@@ -50,17 +50,13 @@ class CLIMain:
 
     def _run_html(self, settings: Settings) -> None:
         AFKBucket.id()
-        init_month: str | None = self._resolve_init_month()
+        init_month: str | None = None
+        if self._args.month not in ("this", "all"):
+            dates: list[date] = MonthPeriod.parse(self._args.month).date_range()
+            if dates:
+                init_month = f"{dates[0].year}-{dates[0].month:02d}"
         server: WorkHTTPServer = WorkHTTPServer()
         server.start(init_month, self._args.quiet)
-
-    def _resolve_init_month(self) -> str | None:
-        if self._args.month in ("this", "all"):
-            return None
-        dates: list[date] = MonthPeriod.parse(self._args.month).date_range()
-        if dates:
-            return f"{dates[0].year}-{dates[0].month:02d}"
-        return None
 
     def _run_text(self, settings: Settings) -> None:
         period: MonthPeriod = MonthPeriod.parse(self._args.month)
