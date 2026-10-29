@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "AW epoch 自動入力",
+  "version": "1.0.0",
+  "description": "ActivityWatch の記録から epoch 勤務実績入力画面に始業・終業・休憩・事由を入力する",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://iweb.is.jp.panasonic.com/epoch/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["epoch_fill.js"],
+      "matches": ["https://iweb.is.jp.panasonic.com/*"]
+    }
+  ],
+  "host_permissions": ["http://127.0.0.1:8600/*"]
+}

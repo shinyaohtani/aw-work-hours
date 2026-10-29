@@ -1,14 +1,15 @@
-// aw-work-hours: epoch 勤務実績入力画面の自動入力スクリプト
-// 勤務実績入力画面の開発者ツールのコンソールに貼り付けて実行する。
+// aw-work-hours: epoch 勤務実績入力画面の自動入力
+// epoch のページ内（jQuery や画面側の関数が見える場所）で動かす。
+// - 拡張機能: content.js がこのファイルをページに差し込み、"aw-epoch-fill" イベントで日程を渡す
+// - aw-work-hours --epoch: このファイルの末尾に awEpochFill(日程) の呼び出しを足してコンソールに貼る
+//
 // - 未登録の勤務日に、始業・終業・休憩（区分「休憩時間」）を入力する（サーバーには送らない）
 // - 確認のうえ、事由「常時ＰＣ未使用者」を事由入力ダイアログ経由で登録する
 // - 各行の「登録」ボタンは押さない。黄色の欄を確認してから自分で押すこと
-(async () => {
-  const DAYS = __AW_DAYS__;
+window.awEpochFill = async (DAYS) => {
   const REST_KIND = "12"; // 休憩時間
   const REASON = "Z0007"; // 常時ＰＣ未使用者
   const UNREGISTERED = "00";
-  const WORKDAY = "01";
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const rowAt = (i) => $("#DATA_LIST tbody tr:eq(" + i + ")");
@@ -35,8 +36,6 @@
       const row = rowAt(i);
       if (row.find("#DTJS_INPT_JKKB").val() !== UNREGISTERED) {
         skipped.push({ 日付: dt.value, 理由: "登録済・申請中" });
-      } else if (row.find('[name="DTY_KB"]').val() !== WORKDAY) {
-        skipped.push({ 日付: dt.value, 理由: "勤務日以外（AWに記録あり）" });
       } else {
         targets.push({ i, date: dt.value, day, row });
       }
@@ -44,11 +43,13 @@
     return { targets, skipped };
   };
 
-  // 手入力と同じく change / blur を発火させ、画面側の差時間計算や書式整形を走らせる
+  // 手入力と同じく input / change / blur を発火させ、画面側の処理を走らせる
+  // （input: 所定休日などの「登録」ボタン表示、change / blur: 差時間計算や書式整形）
   const setTime = (row, cl, id, hhmm) => {
     const el = row.find("#" + cl + row.find("#" + cl).val()).children("#" + id)[0];
     if (!el || el.disabled) return false;
     el.value = colon(hhmm);
+    el.dispatchEvent(new Event("input"));
     el.dispatchEvent(new Event("change"));
     el.dispatchEvent(new Event("blur"));
     el.style.background = "#fff3b0";
@@ -130,4 +131,9 @@
     "aw-work-hours: " + report.length + " 日分を入力しました。\n" +
     "黄色の欄を確認してから、各行の「登録」を押してください。"
   );
-})();
+};
+
+// 拡張機能（content.js）からの呼び出し口。日程は JSON 文字列で受け取る
+document.addEventListener("aw-epoch-fill", (event) => {
+  window.awEpochFill(JSON.parse(event.detail));
+});

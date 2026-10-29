@@ -80,18 +80,39 @@ aw-work-hours -q
 
 ## epoch 勤務実績入力への自動入力
 
-```bash
-aw-work-hours --epoch            # 今月分（今日より前の勤務日）
-aw-work-hours --epoch -m last    # 先月分
-```
+epoch「勤務実績入力」画面の、今日より前で「未登録」の勤務日に次を行います。
 
-コピーされたスクリプトを、epoch「勤務実績入力」画面の開発者ツールのコンソールに貼り付けて実行します。
-
-1. 未登録の勤務日に、始業・終業・休憩（区分「休憩時間」）を入力する。この時点ではサーバーに送らない
+1. 始業・終業・休憩（区分「休憩時間」）を入力する。この時点ではサーバーに送らない
 2. 確認ダイアログでOKすると、事由「常時ＰＣ未使用者」を事由入力ダイアログ経由で登録する
 3. 黄色の欄を確認してから、各行の「登録」を自分で押す
 
-登録済・申請中の日と、勤務日以外の日には触れません。AWで休憩が見つからない日は、epochの既定の休憩のままにします。
+登録済・申請中の日と、AWに記録がない日には触れません。所定休日でもAWに記録があれば入力します。AWで休憩が見つからない日は、epochの既定の休憩のままにします。
+
+### Safari 拡張機能（ボタンで実行）
+
+epoch の画面下のフッター帯の右寄りに「活動履歴に同期」ボタンが出ます。データはローカルの aw-work-hours サーバーから取るので、`aw-work-hours --html` を起動しておきます（`GET /epoch/YYYY-MM`）。
+
+拡張機能の本体は `extension/`、Safari 用の Xcode プロジェクトは `safari/` です。ビルドとインストール：
+
+```bash
+xcodebuild -project "safari/AW Epoch Fill/AW Epoch Fill.xcodeproj" -scheme "AW Epoch Fill" \
+  -configuration Release -derivedDataPath build/safari \
+  DEVELOPMENT_TEAM=<チームID> CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates build
+ditto "build/safari/Build/Products/Release/AW Epoch Fill.app" ~/Applications/"AW Epoch Fill.app"
+rm -rf build/safari   # ビルド結果が残ると Safari に同じ機能拡張が2つ並ぶ
+open ~/Applications/"AW Epoch Fill.app"
+```
+
+初回は Safari の「設定」→「機能拡張」で「AW epoch 自動入力」をオンにし、iweb.is.jp.panasonic.com での利用を許可します。
+
+### コンソールに貼り付けて実行
+
+```bash
+aw-work-hours --epoch            # 今月分
+aw-work-hours --epoch -m last    # 先月分
+```
+
+コピーされたスクリプトを、epoch の画面の開発者ツールのコンソールに貼り付けて実行します。
 
 ## 勤務日の判定ルール
 

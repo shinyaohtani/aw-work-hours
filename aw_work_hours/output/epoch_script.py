@@ -4,6 +4,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from .. import PROJECT_DIR
 from ..types import EpochDay
 from ..domain.break_rule import BreakRule
 from ..domain.work_breaks import WorkBreaks
@@ -15,8 +16,7 @@ from ..domain.work_span import WorkSpan
 class EpochScript:
     """epoch勤務実績入力画面に貼り付ける入力スクリプト（今日より前の勤務日のみ）"""
 
-    _TEMPLATE_ABSPATH: Path = Path(__file__).with_name("epoch_fill.js")
-    _PLACEHOLDER: str = "__AW_DAYS__"
+    _FILL_ABSPATH: Path = PROJECT_DIR / "extension" / "epoch_fill.js"
 
     def __init__(self, report: WorkPeriodReport, rule: BreakRule, today: date) -> None:
         self._report: WorkPeriodReport = report
@@ -24,9 +24,9 @@ class EpochScript:
         self._today: date = today
 
     def content(self) -> str:
-        template: str = self._TEMPLATE_ABSPATH.read_text(encoding="utf-8")
+        fill: str = self._FILL_ABSPATH.read_text(encoding="utf-8")
         days_json: str = json.dumps(self.days, ensure_ascii=False, indent=2)
-        return template.replace(self._PLACEHOLDER, days_json)
+        return f"{fill}\nawEpochFill({days_json});\n"
 
     @property
     def days(self) -> dict[str, EpochDay]:
