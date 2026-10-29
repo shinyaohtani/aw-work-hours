@@ -3,6 +3,13 @@
   "name": "AW epoch 自動入力",
   "version": "1.0.0",
   "description": "ActivityWatch の記録から epoch 勤務実績入力画面に始業・終業・休憩・事由を入力する",
+  "icons": {
+    "48": "images/icon-48.png",
+    "96": "images/icon-96.png",
+    "128": "images/icon-128.png",
+    "256": "images/icon-256.png",
+    "512": "images/icon-512.png"
+  },
   "background": {
     "service_worker": "background.js"
   },

@@ -7,71 +7,73 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0BD4CA063092C93F0009CC37 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BD4CA053092C93F0009CC37 /* AppDelegate.swift */; };
-		0BD4CA0A3092C93F0009CC37 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA083092C93F0009CC37 /* Main.html */; };
-		0BD4CA0C3092C93F0009CC37 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA0B3092C93F0009CC37 /* Icon.png */; };
-		0BD4CA0E3092C93F0009CC37 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA0D3092C93F0009CC37 /* Style.css */; };
-		0BD4CA103092C93F0009CC37 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA0F3092C93F0009CC37 /* Script.js */; };
-		0BD4CA123092C93F0009CC37 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BD4CA113092C93F0009CC37 /* ViewController.swift */; };
-		0BD4CA153092C93F0009CC37 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA133092C93F0009CC37 /* Main.storyboard */; };
-		0BD4CA173092C9410009CC37 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA163092C9410009CC37 /* Assets.xcassets */; };
-		0BD4CA1E3092C9410009CC37 /* AW Epoch Fill Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0BD4CA1D3092C9410009CC37 /* AW Epoch Fill Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		0BD4CA233092C9410009CC37 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BD4CA223092C9410009CC37 /* SafariWebExtensionHandler.swift */; };
-		0BD4CA333092C9410009CC37 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA2F3092C9410009CC37 /* background.js */; };
-		0BD4CA343092C9410009CC37 /* epoch_fill.js in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA303092C9410009CC37 /* epoch_fill.js */; };
-		0BD4CA353092C9410009CC37 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA313092C9410009CC37 /* manifest.json */; };
-		0BD4CA363092C9410009CC37 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 0BD4CA323092C9410009CC37 /* content.js */; };
+		0B72BE603092D5D0000E8914 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B72BE5F3092D5D0000E8914 /* AppDelegate.swift */; };
+		0B72BE643092D5D0000E8914 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE623092D5D0000E8914 /* Main.html */; };
+		0B72BE663092D5D0000E8914 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE653092D5D0000E8914 /* Icon.png */; };
+		0B72BE683092D5D0000E8914 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE673092D5D0000E8914 /* Style.css */; };
+		0B72BE6A3092D5D0000E8914 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE693092D5D0000E8914 /* Script.js */; };
+		0B72BE6C3092D5D0000E8914 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B72BE6B3092D5D0000E8914 /* ViewController.swift */; };
+		0B72BE6F3092D5D0000E8914 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE6D3092D5D0000E8914 /* Main.storyboard */; };
+		0B72BE713092D5D1000E8914 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE703092D5D1000E8914 /* Assets.xcassets */; };
+		0B72BE783092D5D1000E8914 /* AW Epoch Fill Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0B72BE773092D5D1000E8914 /* AW Epoch Fill Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0B72BE7D3092D5D1000E8914 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B72BE7C3092D5D1000E8914 /* SafariWebExtensionHandler.swift */; };
+		0B72BE8E3092D5D2000E8914 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE893092D5D2000E8914 /* background.js */; };
+		0B72BE8F3092D5D2000E8914 /* images in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE8A3092D5D2000E8914 /* images */; };
+		0B72BE903092D5D2000E8914 /* epoch_fill.js in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE8B3092D5D2000E8914 /* epoch_fill.js */; };
+		0B72BE913092D5D2000E8914 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE8C3092D5D2000E8914 /* manifest.json */; };
+		0B72BE923092D5D2000E8914 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 0B72BE8D3092D5D2000E8914 /* content.js */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		0BD4CA1F3092C9410009CC37 /* PBXContainerItemProxy */ = {
+		0B72BE793092D5D1000E8914 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = 0BD4C9FA3092C93F0009CC37 /* Project object */;
+			containerPortal = 0B72BE543092D5D0000E8914 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = 0BD4CA1C3092C9410009CC37;
+			remoteGlobalIDString = 0B72BE763092D5D1000E8914;
 			remoteInfo = "AW Epoch Fill Extension";
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		0BD4CA2A3092C9410009CC37 /* Embed Foundation Extensions */ = {
+		0B72BE843092D5D1000E8914 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			dstPath = "";
 			dstSubfolder = PlugIns;
 			files = (
-				0BD4CA1E3092C9410009CC37 /* AW Epoch Fill Extension.appex in Embed Foundation Extensions */,
+				0B72BE783092D5D1000E8914 /* AW Epoch Fill Extension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		0BD4CA023092C93F0009CC37 /* AW Epoch Fill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AW Epoch Fill.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		0BD4CA053092C93F0009CC37 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		0BD4CA093092C93F0009CC37 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
-		0BD4CA0B3092C93F0009CC37 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
-		0BD4CA0D3092C93F0009CC37 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
-		0BD4CA0F3092C93F0009CC37 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
-		0BD4CA113092C93F0009CC37 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
-		0BD4CA143092C93F0009CC37 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
-		0BD4CA163092C9410009CC37 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		0BD4CA183092C9410009CC37 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		0BD4CA1D3092C9410009CC37 /* AW Epoch Fill Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "AW Epoch Fill Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
-		0BD4CA223092C9410009CC37 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
-		0BD4CA243092C9410009CC37 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		0BD4CA2F3092C9410009CC37 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../extension/background.js; sourceTree = "<group>"; };
-		0BD4CA303092C9410009CC37 /* epoch_fill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = epoch_fill.js; path = ../../../extension/epoch_fill.js; sourceTree = "<group>"; };
-		0BD4CA313092C9410009CC37 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../extension/manifest.json; sourceTree = "<group>"; };
-		0BD4CA323092C9410009CC37 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../extension/content.js; sourceTree = "<group>"; };
+		0B72BE5C3092D5D0000E8914 /* AW Epoch Fill.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AW Epoch Fill.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0B72BE5F3092D5D0000E8914 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		0B72BE633092D5D0000E8914 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		0B72BE653092D5D0000E8914 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		0B72BE673092D5D0000E8914 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		0B72BE693092D5D0000E8914 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		0B72BE6B3092D5D0000E8914 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		0B72BE6E3092D5D0000E8914 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		0B72BE703092D5D1000E8914 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0B72BE723092D5D1000E8914 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0B72BE773092D5D1000E8914 /* AW Epoch Fill Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "AW Epoch Fill Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0B72BE7C3092D5D1000E8914 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		0B72BE7E3092D5D1000E8914 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0B72BE893092D5D2000E8914 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../extension/background.js; sourceTree = "<group>"; };
+		0B72BE8A3092D5D2000E8914 /* images */ = {isa = PBXFileReference; lastKnownFileType = folder; name = images; path = ../../../extension/images; sourceTree = "<group>"; };
+		0B72BE8B3092D5D2000E8914 /* epoch_fill.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = epoch_fill.js; path = ../../../extension/epoch_fill.js; sourceTree = "<group>"; };
+		0B72BE8C3092D5D2000E8914 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../extension/manifest.json; sourceTree = "<group>"; };
+		0B72BE8D3092D5D2000E8914 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../extension/content.js; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		0BD4C9FF3092C93F0009CC37 /* Frameworks */ = {
+		0B72BE593092D5D0000E8914 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 			);
 		};
-		0BD4CA1A3092C9410009CC37 /* Frameworks */ = {
+		0B72BE743092D5D1000E8914 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 			);
@@ -79,65 +81,66 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		0BD4C9F93092C93F0009CC37 = {
+		0B72BE533092D5D0000E8914 = {
 			isa = PBXGroup;
 			children = (
-				0BD4CA043092C93F0009CC37 /* AW Epoch Fill */,
-				0BD4CA213092C9410009CC37 /* AW Epoch Fill Extension */,
-				0BD4CA033092C93F0009CC37 /* Products */,
+				0B72BE5E3092D5D0000E8914 /* AW Epoch Fill */,
+				0B72BE7B3092D5D1000E8914 /* AW Epoch Fill Extension */,
+				0B72BE5D3092D5D0000E8914 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		0BD4CA033092C93F0009CC37 /* Products */ = {
+		0B72BE5D3092D5D0000E8914 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				0BD4CA023092C93F0009CC37 /* AW Epoch Fill.app */,
-				0BD4CA1D3092C9410009CC37 /* AW Epoch Fill Extension.appex */,
+				0B72BE5C3092D5D0000E8914 /* AW Epoch Fill.app */,
+				0B72BE773092D5D1000E8914 /* AW Epoch Fill Extension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		0BD4CA043092C93F0009CC37 /* AW Epoch Fill */ = {
+		0B72BE5E3092D5D0000E8914 /* AW Epoch Fill */ = {
 			isa = PBXGroup;
 			children = (
-				0BD4CA053092C93F0009CC37 /* AppDelegate.swift */,
-				0BD4CA113092C93F0009CC37 /* ViewController.swift */,
-				0BD4CA133092C93F0009CC37 /* Main.storyboard */,
-				0BD4CA163092C9410009CC37 /* Assets.xcassets */,
-				0BD4CA183092C9410009CC37 /* Info.plist */,
-				0BD4CA073092C93F0009CC37 /* Resources */,
+				0B72BE5F3092D5D0000E8914 /* AppDelegate.swift */,
+				0B72BE6B3092D5D0000E8914 /* ViewController.swift */,
+				0B72BE6D3092D5D0000E8914 /* Main.storyboard */,
+				0B72BE703092D5D1000E8914 /* Assets.xcassets */,
+				0B72BE723092D5D1000E8914 /* Info.plist */,
+				0B72BE613092D5D0000E8914 /* Resources */,
 			);
 			path = "AW Epoch Fill";
 			sourceTree = "<group>";
 		};
-		0BD4CA073092C93F0009CC37 /* Resources */ = {
+		0B72BE613092D5D0000E8914 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				0BD4CA083092C93F0009CC37 /* Main.html */,
-				0BD4CA0B3092C93F0009CC37 /* Icon.png */,
-				0BD4CA0D3092C93F0009CC37 /* Style.css */,
-				0BD4CA0F3092C93F0009CC37 /* Script.js */,
+				0B72BE623092D5D0000E8914 /* Main.html */,
+				0B72BE653092D5D0000E8914 /* Icon.png */,
+				0B72BE673092D5D0000E8914 /* Style.css */,
+				0B72BE693092D5D0000E8914 /* Script.js */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
 		};
-		0BD4CA213092C9410009CC37 /* AW Epoch Fill Extension */ = {
+		0B72BE7B3092D5D1000E8914 /* AW Epoch Fill Extension */ = {
 			isa = PBXGroup;
 			children = (
-				0BD4CA2E3092C9410009CC37 /* Resources */,
-				0BD4CA223092C9410009CC37 /* SafariWebExtensionHandler.swift */,
-				0BD4CA243092C9410009CC37 /* Info.plist */,
+				0B72BE883092D5D2000E8914 /* Resources */,
+				0B72BE7C3092D5D1000E8914 /* SafariWebExtensionHandler.swift */,
+				0B72BE7E3092D5D1000E8914 /* Info.plist */,
 			);
 			path = "AW Epoch Fill Extension";
 			sourceTree = "<group>";
 		};
-		0BD4CA2E3092C9410009CC37 /* Resources */ = {
+		0B72BE883092D5D2000E8914 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				0BD4CA2F3092C9410009CC37 /* background.js */,
-				0BD4CA303092C9410009CC37 /* epoch_fill.js */,
-				0BD4CA313092C9410009CC37 /* manifest.json */,
-				0BD4CA323092C9410009CC37 /* content.js */,
+				0B72BE893092D5D2000E8914 /* background.js */,
+				0B72BE8A3092D5D2000E8914 /* images */,
+				0B72BE8B3092D5D2000E8914 /* epoch_fill.js */,
+				0B72BE8C3092D5D2000E8914 /* manifest.json */,
+				0B72BE8D3092D5D2000E8914 /* content.js */,
 			);
 			name = Resources;
 			path = "AW Epoch Fill Extension";
@@ -146,138 +149,139 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		0BD4CA013092C93F0009CC37 /* AW Epoch Fill */ = {
+		0B72BE5B3092D5D0000E8914 /* AW Epoch Fill */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 0BD4CA2B3092C9410009CC37 /* Build configuration list for PBXNativeTarget "AW Epoch Fill" */;
+			buildConfigurationList = 0B72BE853092D5D1000E8914 /* Build configuration list for PBXNativeTarget "AW Epoch Fill" */;
 			buildPhases = (
-				0BD4C9FE3092C93F0009CC37 /* Sources */,
-				0BD4C9FF3092C93F0009CC37 /* Frameworks */,
-				0BD4CA003092C93F0009CC37 /* Resources */,
-				0BD4CA2A3092C9410009CC37 /* Embed Foundation Extensions */,
+				0B72BE583092D5D0000E8914 /* Sources */,
+				0B72BE593092D5D0000E8914 /* Frameworks */,
+				0B72BE5A3092D5D0000E8914 /* Resources */,
+				0B72BE843092D5D1000E8914 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				0BD4CA203092C9410009CC37 /* PBXTargetDependency */,
+				0B72BE7A3092D5D1000E8914 /* PBXTargetDependency */,
 			);
 			name = "AW Epoch Fill";
 			productName = "AW Epoch Fill";
-			productReference = 0BD4CA023092C93F0009CC37 /* AW Epoch Fill.app */;
+			productReference = 0B72BE5C3092D5D0000E8914 /* AW Epoch Fill.app */;
 			productType = "com.apple.product-type.application";
 		};
-		0BD4CA1C3092C9410009CC37 /* AW Epoch Fill Extension */ = {
+		0B72BE763092D5D1000E8914 /* AW Epoch Fill Extension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 0BD4CA273092C9410009CC37 /* Build configuration list for PBXNativeTarget "AW Epoch Fill Extension" */;
+			buildConfigurationList = 0B72BE813092D5D1000E8914 /* Build configuration list for PBXNativeTarget "AW Epoch Fill Extension" */;
 			buildPhases = (
-				0BD4CA193092C9410009CC37 /* Sources */,
-				0BD4CA1A3092C9410009CC37 /* Frameworks */,
-				0BD4CA1B3092C9410009CC37 /* Resources */,
+				0B72BE733092D5D1000E8914 /* Sources */,
+				0B72BE743092D5D1000E8914 /* Frameworks */,
+				0B72BE753092D5D1000E8914 /* Resources */,
 			);
 			buildRules = (
 			);
 			name = "AW Epoch Fill Extension";
 			productName = "AW Epoch Fill Extension";
-			productReference = 0BD4CA1D3092C9410009CC37 /* AW Epoch Fill Extension.appex */;
+			productReference = 0B72BE773092D5D1000E8914 /* AW Epoch Fill Extension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		0BD4C9FA3092C93F0009CC37 /* Project object */ = {
+		0B72BE543092D5D0000E8914 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2710;
 				TargetAttributes = {
-					0BD4CA013092C93F0009CC37 = {
+					0B72BE5B3092D5D0000E8914 = {
 						CreatedOnToolsVersion = 27.1;
 					};
-					0BD4CA1C3092C9410009CC37 = {
+					0B72BE763092D5D1000E8914 = {
 						CreatedOnToolsVersion = 27.1;
 					};
 				};
 			};
-			buildConfigurationList = 0BD4C9FD3092C93F0009CC37 /* Build configuration list for PBXProject "AW Epoch Fill" */;
+			buildConfigurationList = 0B72BE573092D5D0000E8914 /* Build configuration list for PBXProject "AW Epoch Fill" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
 				Base,
 			);
-			mainGroup = 0BD4C9F93092C93F0009CC37;
+			mainGroup = 0B72BE533092D5D0000E8914;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 0BD4CA033092C93F0009CC37 /* Products */;
+			productRefGroup = 0B72BE5D3092D5D0000E8914 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				0BD4CA013092C93F0009CC37 /* AW Epoch Fill */,
-				0BD4CA1C3092C9410009CC37 /* AW Epoch Fill Extension */,
+				0B72BE5B3092D5D0000E8914 /* AW Epoch Fill */,
+				0B72BE763092D5D1000E8914 /* AW Epoch Fill Extension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		0BD4CA003092C93F0009CC37 /* Resources */ = {
+		0B72BE5A3092D5D0000E8914 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
-				0BD4CA0C3092C93F0009CC37 /* Icon.png in Resources */,
-				0BD4CA153092C93F0009CC37 /* Main.storyboard in Resources */,
-				0BD4CA103092C93F0009CC37 /* Script.js in Resources */,
-				0BD4CA0A3092C93F0009CC37 /* Main.html in Resources */,
-				0BD4CA173092C9410009CC37 /* Assets.xcassets in Resources */,
-				0BD4CA0E3092C93F0009CC37 /* Style.css in Resources */,
+				0B72BE663092D5D0000E8914 /* Icon.png in Resources */,
+				0B72BE6F3092D5D0000E8914 /* Main.storyboard in Resources */,
+				0B72BE6A3092D5D0000E8914 /* Script.js in Resources */,
+				0B72BE643092D5D0000E8914 /* Main.html in Resources */,
+				0B72BE713092D5D1000E8914 /* Assets.xcassets in Resources */,
+				0B72BE683092D5D0000E8914 /* Style.css in Resources */,
 			);
 		};
-		0BD4CA1B3092C9410009CC37 /* Resources */ = {
+		0B72BE753092D5D1000E8914 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
-				0BD4CA363092C9410009CC37 /* content.js in Resources */,
-				0BD4CA333092C9410009CC37 /* background.js in Resources */,
-				0BD4CA353092C9410009CC37 /* manifest.json in Resources */,
-				0BD4CA343092C9410009CC37 /* epoch_fill.js in Resources */,
+				0B72BE913092D5D2000E8914 /* manifest.json in Resources */,
+				0B72BE903092D5D2000E8914 /* epoch_fill.js in Resources */,
+				0B72BE8F3092D5D2000E8914 /* images in Resources */,
+				0B72BE8E3092D5D2000E8914 /* background.js in Resources */,
+				0B72BE923092D5D2000E8914 /* content.js in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		0BD4C9FE3092C93F0009CC37 /* Sources */ = {
+		0B72BE583092D5D0000E8914 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
-				0BD4CA123092C93F0009CC37 /* ViewController.swift in Sources */,
-				0BD4CA063092C93F0009CC37 /* AppDelegate.swift in Sources */,
+				0B72BE6C3092D5D0000E8914 /* ViewController.swift in Sources */,
+				0B72BE603092D5D0000E8914 /* AppDelegate.swift in Sources */,
 			);
 		};
-		0BD4CA193092C9410009CC37 /* Sources */ = {
+		0B72BE733092D5D1000E8914 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
-				0BD4CA233092C9410009CC37 /* SafariWebExtensionHandler.swift in Sources */,
+				0B72BE7D3092D5D1000E8914 /* SafariWebExtensionHandler.swift in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		0BD4CA203092C9410009CC37 /* PBXTargetDependency */ = {
+		0B72BE7A3092D5D1000E8914 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 0BD4CA1C3092C9410009CC37 /* AW Epoch Fill Extension */;
-			targetProxy = 0BD4CA1F3092C9410009CC37 /* PBXContainerItemProxy */;
+			target = 0B72BE763092D5D1000E8914 /* AW Epoch Fill Extension */;
+			targetProxy = 0B72BE793092D5D1000E8914 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
-		0BD4CA083092C93F0009CC37 /* Main.html */ = {
+		0B72BE623092D5D0000E8914 /* Main.html */ = {
 			isa = PBXVariantGroup;
 			children = (
-				0BD4CA093092C93F0009CC37 /* Base */,
+				0B72BE633092D5D0000E8914 /* Base */,
 			);
 			name = Main.html;
 			sourceTree = "<group>";
 		};
-		0BD4CA133092C93F0009CC37 /* Main.storyboard */ = {
+		0B72BE6D3092D5D0000E8914 /* Main.storyboard */ = {
 			isa = PBXVariantGroup;
 			children = (
-				0BD4CA143092C93F0009CC37 /* Base */,
+				0B72BE6E3092D5D0000E8914 /* Base */,
 			);
 			name = Main.storyboard;
 			sourceTree = "<group>";
@@ -285,7 +289,7 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		0BD4CA253092C9410009CC37 /* Debug configuration for PBXProject "AW Epoch Fill" */ = {
+		0B72BE7F3092D5D1000E8914 /* Debug configuration for PBXProject "AW Epoch Fill" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -348,7 +352,7 @@
 			};
 			name = Debug;
 		};
-		0BD4CA263092C9410009CC37 /* Release configuration for PBXProject "AW Epoch Fill" */ = {
+		0B72BE803092D5D1000E8914 /* Release configuration for PBXProject "AW Epoch Fill" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -403,7 +407,7 @@
 			};
 			name = Release;
 		};
-		0BD4CA283092C9410009CC37 /* Debug configuration for PBXNativeTarget "AW Epoch Fill Extension" */ = {
+		0B72BE823092D5D1000E8914 /* Debug configuration for PBXNativeTarget "AW Epoch Fill Extension" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -437,7 +441,7 @@
 			};
 			name = Debug;
 		};
-		0BD4CA293092C9410009CC37 /* Release configuration for PBXNativeTarget "AW Epoch Fill Extension" */ = {
+		0B72BE833092D5D1000E8914 /* Release configuration for PBXNativeTarget "AW Epoch Fill Extension" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -471,7 +475,7 @@
 			};
 			name = Release;
 		};
-		0BD4CA2C3092C9410009CC37 /* Debug configuration for PBXNativeTarget "AW Epoch Fill" */ = {
+		0B72BE863092D5D1000E8914 /* Debug configuration for PBXNativeTarget "AW Epoch Fill" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -513,7 +517,7 @@
 			};
 			name = Debug;
 		};
-		0BD4CA2D3092C9410009CC37 /* Release configuration for PBXNativeTarget "AW Epoch Fill" */ = {
+		0B72BE873092D5D1000E8914 /* Release configuration for PBXNativeTarget "AW Epoch Fill" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -558,32 +562,32 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0BD4C9FD3092C93F0009CC37 /* Build configuration list for PBXProject "AW Epoch Fill" */ = {
+		0B72BE573092D5D0000E8914 /* Build configuration list for PBXProject "AW Epoch Fill" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				0BD4CA253092C9410009CC37 /* Debug configuration for PBXProject "AW Epoch Fill" */,
-				0BD4CA263092C9410009CC37 /* Release configuration for PBXProject "AW Epoch Fill" */,
+				0B72BE7F3092D5D1000E8914 /* Debug configuration for PBXProject "AW Epoch Fill" */,
+				0B72BE803092D5D1000E8914 /* Release configuration for PBXProject "AW Epoch Fill" */,
 			);
 			defaultConfigurationName = Release;
 		};
-		0BD4CA273092C9410009CC37 /* Build configuration list for PBXNativeTarget "AW Epoch Fill Extension" */ = {
+		0B72BE813092D5D1000E8914 /* Build configuration list for PBXNativeTarget "AW Epoch Fill Extension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				0BD4CA283092C9410009CC37 /* Debug configuration for PBXNativeTarget "AW Epoch Fill Extension" */,
-				0BD4CA293092C9410009CC37 /* Release configuration for PBXNativeTarget "AW Epoch Fill Extension" */,
+				0B72BE823092D5D1000E8914 /* Debug configuration for PBXNativeTarget "AW Epoch Fill Extension" */,
+				0B72BE833092D5D1000E8914 /* Release configuration for PBXNativeTarget "AW Epoch Fill Extension" */,
 			);
 			defaultConfigurationName = Release;
 		};
-		0BD4CA2B3092C9410009CC37 /* Build configuration list for PBXNativeTarget "AW Epoch Fill" */ = {
+		0B72BE853092D5D1000E8914 /* Build configuration list for PBXNativeTarget "AW Epoch Fill" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				0BD4CA2C3092C9410009CC37 /* Debug configuration for PBXNativeTarget "AW Epoch Fill" */,
-				0BD4CA2D3092C9410009CC37 /* Release configuration for PBXNativeTarget "AW Epoch Fill" */,
+				0B72BE863092D5D1000E8914 /* Debug configuration for PBXNativeTarget "AW Epoch Fill" */,
+				0B72BE873092D5D1000E8914 /* Release configuration for PBXNativeTarget "AW Epoch Fill" */,
 			);
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = 0BD4C9FA3092C93F0009CC37 /* Project object */;
+	rootObject = 0B72BE543092D5D0000E8914 /* Project object */;
 	validationLevel = 1;
 }
