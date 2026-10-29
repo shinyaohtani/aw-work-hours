@@ -89,7 +89,10 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             period: MonthPeriod = MonthPeriod(month_str)
             settings: Settings = Settings()
             response: WorkHTMLResponse = WorkHTMLResponse(
-                period, self.server.bucket, settings.min_event_seconds
+                period,
+                self.server.bucket,
+                settings.min_event_seconds,
+                settings.break_rule,
             )
             body: bytes = json.dumps(response.json(), ensure_ascii=False).encode(
                 "utf-8"

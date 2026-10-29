@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from .domain.break_rule import BreakRule
+
 
 class Settings:
     """永続化設定（settings.json）"""
@@ -32,7 +34,19 @@ class Settings:
             "no_colon": self.no_colon,
             "min_event_seconds": self.min_event_seconds,
             "bucket": self.bucket,
+            **self.break_rule.as_dict,
         }
+
+    @property
+    def break_rule(self) -> BreakRule:
+        """休憩判定基準（settings.json の break_minutes / core_break_minutes / core_hours）"""
+        default: BreakRule = BreakRule()
+        merged: dict[str, object] = {**default.as_dict, **self._data}
+        return BreakRule(
+            int(str(merged["break_minutes"])),
+            int(str(merged["core_break_minutes"])),
+            str(merged["core_hours"]),
+        )
 
     @property
     def no_colon(self) -> bool:

@@ -37,6 +37,14 @@ class HTMLEvent(TypedDict):
     data: dict[str, str]
 
 
+class EpochDay(TypedDict):
+    """epoch入力スクリプトに埋め込む1日分の始業・終業・休憩（HHMM）"""
+
+    start: str
+    end: str
+    breaks: list[list[str]]
+
+
 class HTMLSpan(TypedDict):
     """HTML UI用の開始・終了時刻（時分のみ）"""
 
