@@ -14,6 +14,7 @@ class CLIArgs:
             "  aw-work-hours --month=2025-11    2025年11月の勤務時間を出力",
             "  aw-work-hours --month=all        全期間の勤務時間を出力",
             "  aw-work-hours -o work.csv        ファイルに出力",
+            "  aw-work-hours --epoch            epoch入力スクリプトをクリップボードにコピー",
         ]
     )
 
@@ -43,6 +44,11 @@ class CLIArgs:
         )
         self._parser.add_argument(
             "--html", action="store_true", help="HTML形式でブラウザ表示"
+        )
+        self._parser.add_argument(
+            "--epoch",
+            action="store_true",
+            help="epoch勤務実績入力画面用の入力スクリプトをクリップボードにコピー",
         )
         self._parser.add_argument(
             "--bucket", "-b", help="使用するAFKバケットのPC名（例: Mac, PC-NAME.local）"
@@ -76,6 +82,10 @@ class CLIArgs:
     @property
     def html(self) -> bool:
         return self._args.html
+
+    @property
+    def epoch(self) -> bool:
+        return self._args.epoch
 
     @property
     def bucket(self) -> str | None:

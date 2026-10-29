@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from .break_rule import BreakRule
 from .work_gap import WorkGap
 from .work_span import WorkSpan
 
@@ -23,11 +24,12 @@ class DaySpans:
             max_end = max(max_end, span.end)
         return max_gap
 
-    def breaks(self, min_seconds: int) -> list[WorkSpan]:
+    def breaks(self, rule: BreakRule) -> list[WorkSpan]:
         breaks: list[WorkSpan] = []
         max_end: datetime = self._spans[0].end
         for span in self._spans[1:]:
-            if WorkGap(max_end, span.start).seconds >= min_seconds:
-                breaks.append(WorkSpan(max_end, span.start))
+            gap: WorkSpan = WorkSpan(max_end, span.start)
+            if rule.includes(gap):
+                breaks.append(gap)
             max_end = max(max_end, span.end)
         return breaks

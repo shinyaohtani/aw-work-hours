@@ -2,11 +2,14 @@
 
 import http.server
 import json
+from datetime import date
 from typing import Any
 
 from ..settings import Settings
 from ..domain.afk_bucket import AFKBucket
 from ..domain.month_period import MonthPeriod
+from ..domain.work_period_report import WorkPeriodReport
+from ..output.epoch_script import EpochScript
 from .activity_watch_proxy import ActivityWatchProxy
 from .settings_payload import SettingsPayload
 from .work_html_response import WorkHTMLResponse
@@ -27,11 +30,17 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store, must-revalidate")
+        # epoch自動入力の拡張機能からの取得だけを許可する（一般のWebサイトには勤務データを渡さない）
+        origin: str = self.headers.get("Origin", "")
+        if origin.startswith(("safari-web-extension://", "chrome-extension://")):
+            self.send_header("Access-Control-Allow-Origin", origin)
         super().end_headers()
 
     def do_GET(self) -> None:
         if self.path.startswith("/data/"):
             self._handle_data()
+        elif self.path.startswith("/epoch/"):
+            self._handle_epoch()
         elif self.path == "/settings":
             self._handle_get_settings()
         elif self.path == "/settings/buckets":
@@ -89,9 +98,28 @@ class WorkHTTPHandler(http.server.SimpleHTTPRequestHandler):
             period: MonthPeriod = MonthPeriod(month_str)
             settings: Settings = Settings()
             response: WorkHTMLResponse = WorkHTMLResponse(
-                period, self.server.bucket, settings.min_event_seconds
+                period,
+                self.server.bucket,
+                settings.min_event_seconds,
+                settings.break_rule,
             )
             body: bytes = json.dumps(response.json(), ensure_ascii=False).encode(
+                "utf-8"
+            )
+            self._send_json(body)
+        except Exception as e:
+            self.send_error(500, f"Error: {e}")
+
+    def _handle_epoch(self) -> None:
+        """epoch自動入力（拡張機能）用の日程: GET /epoch/YYYY-MM"""
+        try:
+            month_str: str = self.path.split("/")[-1]
+            settings: Settings = Settings()
+            report: WorkPeriodReport = WorkPeriodReport(
+                MonthPeriod(month_str), self.server.bucket, settings.min_event_seconds
+            )
+            script: EpochScript = EpochScript(report, settings.break_rule, date.today())
+            body: bytes = json.dumps({"days": script.days}, ensure_ascii=False).encode(
                 "utf-8"
             )
             self._send_json(body)

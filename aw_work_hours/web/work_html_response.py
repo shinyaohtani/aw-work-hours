@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 
 from ..types import _TIMEZONE, AWEvent
 from ..domain.afk_bucket import AFKBucket
+from ..domain.break_rule import BreakRule
 from ..domain.holiday_calendar import HolidayCalendar
 from ..domain.month_period import MonthPeriod
 from ..domain.work_breaks import WorkBreaks
@@ -16,18 +17,25 @@ class WorkHTMLResponse:
     """HTML APIレスポンス生成"""
 
     def __init__(
-        self, period: MonthPeriod, bucket: AFKBucket, min_event_seconds: int
+        self,
+        period: MonthPeriod,
+        bucket: AFKBucket,
+        min_event_seconds: int,
+        break_rule: BreakRule,
     ) -> None:
         self._period: MonthPeriod = period
         self._bucket: AFKBucket = bucket
         self._min_event_seconds: int = min_event_seconds
+        self._break_rule: BreakRule = break_rule
 
     def json(self) -> dict:
         report: WorkPeriodReport = WorkPeriodReport(
             self._period, self._bucket, self._min_event_seconds
         )
         holidays: HolidayCalendar = HolidayCalendar()
-        breaks: dict[date, list[WorkSpan]] = WorkBreaks(report.events).by_day
+        breaks: dict[date, list[WorkSpan]] = WorkBreaks(
+            report.events, self._break_rule
+        ).by_day
         rows: list[WorkHTMLRow] = self._create_rows(report, holidays, breaks)
         self._populate_events(rows, report)
         return {"rows": [r.to_dict() for r in rows]}
