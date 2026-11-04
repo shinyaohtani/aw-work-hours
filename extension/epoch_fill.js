@@ -3,12 +3,16 @@
 // - 拡張機能: content.js がこのファイルをページに差し込み、"aw-epoch-fill" イベントで日程を渡す
 // - aw-work-hours --epoch: このファイルの末尾に awEpochFill(日程) の呼び出しを足してコンソールに貼る
 //
-// - 未登録の勤務日に、始業・終業・休憩（区分「休憩時間」）を入力する（サーバーには送らない）
-// - 確認のうえ、事由「常時ＰＣ未使用者」を事由入力ダイアログ経由で登録する
+// - 未登録の日を一覧で見せ、チェックした日にだけ始業・終業・休憩（区分「休憩時間」）を入力する（サーバーには送らない）
+// - 「事由も登録する」にチェックがあれば、事由「常時ＰＣ未使用者」を事由入力ダイアログ経由で登録する
 // - 各行の「登録」ボタンは押さない。黄色の欄を確認してから自分で押すこと
 // aw-work-hours のダイアログ（ブラウザ標準の alert / confirm の代わり）。
-// cancelLabel を渡すと確認ダイアログになり、OK なら true、キャンセルなら false を返す
-window.awDialog = ({ title, message, details = [], okLabel = "OK", cancelLabel = null }) =>
+// cancelLabel を渡すと確認ダイアログになり、OK なら true、キャンセルなら false を返す。
+// checks（一覧の各行）や options（一覧の下）にチェックボックスを並べると、OK のとき
+// { checks: [true/false...], options: [true/false...] } を返す
+window.awDialog = ({
+  title, message, details = [], checks = [], options = [], okLabel = "OK", cancelLabel = null,
+}) =>
   new Promise((resolve) => {
     const font = '-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif';
     const overlay = document.createElement("div");
@@ -35,23 +39,37 @@ window.awDialog = ({ title, message, details = [], okLabel = "OK", cancelLabel =
       '<ul data-part="details" style="margin:12px 0 0;padding:10px 14px;list-style:none;max-height:220px;' +
       'overflow:auto;border-radius:8px;background:#f3f5f9;font-size:13px;line-height:1.8;color:#374151;' +
       'font-variant-numeric:tabular-nums"></ul>' +
+      '<div data-part="options" style="margin-top:12px;font-size:13px;color:#374151"></div>' +
       '<div data-part="buttons" style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px"></div>';
     const part = (name) => card.querySelector('[data-part="' + name + '"]');
     part("title").textContent = title;
     part("message").textContent = message;
-    if (details.length) {
-      details.forEach((line) => {
-        const item = document.createElement("li");
-        item.textContent = line;
-        part("details").appendChild(item);
-      });
-    } else {
-      part("details").remove();
-    }
+    const checkRow = (item, parent) => {
+      const row = document.createElement(parent.tagName === "UL" ? "li" : "div");
+      row.innerHTML =
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+        '<input type="checkbox" style="width:15px;height:15px;margin:0;accent-color:#0041c0;flex:none">' +
+        "<span></span></label>";
+      row.querySelector("input").checked = item.checked;
+      row.querySelector("span").textContent = item.label;
+      parent.appendChild(row);
+      return row.querySelector("input");
+    };
+    details.forEach((line) => {
+      const item = document.createElement("li");
+      item.textContent = line;
+      part("details").appendChild(item);
+    });
+    const checkBoxes = checks.map((item) => checkRow(item, part("details")));
+    const optionBoxes = options.map((item) => checkRow(item, part("options")));
+    if (!details.length && !checks.length) part("details").remove();
+    if (!options.length) part("options").remove();
     const close = (answer) => {
       document.removeEventListener("keydown", onKey, true);
       overlay.remove();
-      resolve(answer);
+      const checked = (boxes) => boxes.map((box) => box.checked);
+      const withChecks = checks.length || options.length;
+      resolve(answer && withChecks ? { checks: checked(checkBoxes), options: checked(optionBoxes) } : answer);
     };
     const addButton = (label, primary, answer) => {
       const button = document.createElement("button");
@@ -134,22 +152,28 @@ window.awEpochFill = async (DAYS) => {
     return true;
   };
 
-  // 休憩/不就業変更入力ダイアログの「確定」が行に書き戻すのと同じ値を設定する
+  // 休憩/不就業変更入力ダイアログの「確定」が行に書き戻すのと同じ値を設定する。
+  // 休憩がない日は、既定の休憩（12:00〜12:45 など）を全部「行削除」したときと同じ印を送って消す
+  const REST_DELETED = [["99", "0000", "4759"]];
   const setBreaks = (t) => {
-    const breaks = t.day.breaks;
-    if (!breaks.length) return false;
+    const rests = t.day.breaks.length ? t.day.breaks.map((b) => [REST_KIND, b[0], b[1]]) : REST_DELETED;
     callbackClickRestFsjk({
       ROW_NO: t.i,
       KOB_REST_HEN_FL: "1",
       KOB_REST_DSP_HEN_FL: "1",
-      KOB_REST_SKB_KB: breaks.map(() => REST_KIND).join(),
-      KOB_REST_STTM: breaks.map((b) => b[0]).join(),
-      KOB_REST_ETM: breaks.map((b) => b[1]).join(),
-      KOB_REST_RY: breaks.map(() => "").join(),
+      KOB_REST_SKB_KB: rests.map((r) => r[0]).join(),
+      KOB_REST_STTM: rests.map((r) => r[1]).join(),
+      KOB_REST_ETM: rests.map((r) => r[2]).join(),
+      KOB_REST_RY: rests.map(() => "").join(),
       MEL_FL: t.row.find("#MEL_FL").val(),
     });
     t.row.find("#TM_CHG").css("background", "#fff3b0");
-    return true;
+  };
+
+  const breaksLabel = (t) => (t.day.breaks.length ? "休憩 " + t.day.breaks.length + " 件" : "休憩なし");
+  const dayKind = (t) => {
+    const kind = t.row.find('[name="DPY_DTY_KBR"]').val();
+    return kind && kind !== "勤務日" ? " " + kind : "";
   };
 
   const needsReason = (t) =>
@@ -174,35 +198,37 @@ window.awEpochFill = async (DAYS) => {
   };
 
   const { targets, skipped } = targetDays();
-  const report = targets.map((t) => ({
-    日付: t.date,
-    始業: setTime(t.row, "DTY_STH_CL", "DTY_STH", t.day.start) ? colon(t.day.start) : "入力不可",
-    終業: setTime(t.row, "DTY_ENH_CL", "DTY_ENH", t.day.end) ? colon(t.day.end) : "入力不可",
-    休憩: setBreaks(t)
-      ? t.day.breaks.map((b) => colon(b[0]) + "-" + colon(b[1])).join(" ")
-      : "なし（既定のまま）",
-  }));
+  const skippedNote = skipped.length ? "\n登録済・申請中の " + skipped.length + " 日は対象外です。" : "";
+  if (!targets.length) {
+    await window.awDialog({ title: "活動履歴に同期", message: "入力できる日はありません。" + skippedNote });
+    return false;
+  }
+  const choice = await window.awDialog({
+    title: "活動履歴に同期",
+    message: "チェックした日に、始業・終業・休憩を入力します。" + skippedNote,
+    checks: targets.map((t) => ({
+      label:
+        dayLabel(t.date) + dayKind(t) + "　" + colon(t.day.start) + "–" + colon(t.day.end) + "　" + breaksLabel(t),
+      checked: true,
+    })),
+    options: [{ label: "事由「常時ＰＣ未使用者」も登録する", checked: true }],
+    okLabel: "入力する",
+    cancelLabel: "キャンセル",
+  });
+  if (!choice) return false;
+  const chosen = targets.filter((_, k) => choice.checks[k]);
+
+  const report = chosen.map((t) => {
+    const start = setTime(t.row, "DTY_STH_CL", "DTY_STH", t.day.start) ? colon(t.day.start) : "入力不可";
+    const end = setTime(t.row, "DTY_ENH_CL", "DTY_ENH", t.day.end) ? colon(t.day.end) : "入力不可";
+    setBreaks(t);
+    return { 日付: t.date, 始業: start, 終業: end, 休憩: t.day.breaks.map((b) => colon(b[0]) + "-" + colon(b[1])).join(" ") || "なし" };
+  });
   console.log("aw-work-hours: 入力した日");
   console.table(report);
-  if (skipped.length) {
-    console.log("aw-work-hours: 入力しなかった日");
-    console.table(skipped);
-  }
 
-  const reasonTargets = targets.filter(needsReason);
-  const reasonOk =
-    reasonTargets.length > 0 &&
-    (await window.awDialog({
-      title: "事由を登録しますか？",
-      message:
-        "次の " + reasonTargets.length + " 日に、事由「常時ＰＣ未使用者」を登録します。\n" +
-        "勤務実績そのものの「登録」はまだ行いません。",
-      details: reasonTargets.map((t) => dayLabel(t.date)),
-      okLabel: "登録する",
-      cancelLabel: "登録しない",
-    }));
-  if (reasonOk) {
-    for (const t of reasonTargets) {
+  if (choice.options[0]) {
+    for (const t of chosen.filter(needsReason)) {
       try {
         await registerReason(t);
         console.log("aw-work-hours: 事由を登録しました", t.date);
@@ -212,27 +238,25 @@ window.awEpochFill = async (DAYS) => {
           title: "事由の登録で止まりました",
           message: dayLabel(t.date) + " の事由を登録できませんでした。開いているダイアログを確認してください。",
         });
-        return;
+        return true;
       }
     }
   }
   await window.awDialog({
     title: "活動履歴を同期しました",
-    message:
-      (report.length
-        ? report.length + " 日分を入力しました。黄色の欄を確認してから、各行の「登録」を押してください。"
-        : "入力できる日はありませんでした。") +
-      (skipped.length ? "\n登録済・申請中の " + skipped.length + " 日は入力していません。" : ""),
-    details: targets.map((t, k) => {
-      const breaks = t.day.breaks.length;
-      return dayLabel(t.date) + "　" + report[k].始業 + "–" + report[k].終業 + "　休憩 " + (breaks ? breaks + " 件" : "なし");
-    }),
+    message: chosen.length
+      ? chosen.length + " 日分を入力しました。黄色の欄を確認してから、各行の「登録」を押してください。"
+      : "チェックした日がないため、何も入力していません。",
+    details: chosen.map((t, k) => dayLabel(t.date) + "　" + report[k].始業 + "–" + report[k].終業 + "　" + breaksLabel(t)),
   });
+  return chosen.length > 0;
 };
 
 // 拡張機能（content.js）からの呼び出し口。日程は JSON 文字列で受け取る
-document.addEventListener("aw-epoch-fill", (event) => {
-  window.awEpochFill(JSON.parse(event.detail));
+// 終わったら "aw-epoch-result"（"done" = 入力した / "cancel" = 何もしなかった）で知らせる
+document.addEventListener("aw-epoch-fill", async (event) => {
+  const done = await window.awEpochFill(JSON.parse(event.detail));
+  document.dispatchEvent(new CustomEvent("aw-epoch-result", { detail: done ? "done" : "cancel" }));
 });
 
 // 拡張機能（content.js）からのお知らせ。{ title, message, details } を JSON 文字列で受け取る

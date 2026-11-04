@@ -55,8 +55,13 @@ const fill = async (button, label) => {
       document.dispatchEvent(new CustomEvent("aw-epoch-dialog", { detail: JSON.stringify(dialog) }));
       return;
     }
+    // 一覧ダイアログでキャンセルしたときは押す前の表示のままにする
+    const onResult = (event) => {
+      document.removeEventListener("aw-epoch-result", onResult);
+      if (event.detail === "done") Object.assign(button.style, DONE_STYLE);
+    };
+    document.addEventListener("aw-epoch-result", onResult);
     document.dispatchEvent(new CustomEvent("aw-epoch-fill", { detail: JSON.stringify(result.days) }));
-    Object.assign(button.style, DONE_STYLE);
   } finally {
     button.disabled = false;
     label.textContent = text;
