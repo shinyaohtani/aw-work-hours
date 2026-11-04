@@ -9,7 +9,7 @@ class BreakRule:
     """休憩とみなす空白の基準（コア時間帯は最短時間を長くとる）"""
 
     def __init__(
-        self, minutes: int = 15, core_minutes: int = 30, core_hours: str = "09:00-18:00"
+        self, minutes: int = 15, core_minutes: int = 25, core_hours: str = "09:00-18:00"
     ) -> None:
         self._minutes: int = minutes
         self._core_minutes: int = core_minutes
